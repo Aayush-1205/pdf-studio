@@ -73,6 +73,11 @@ export interface PDFWorkerAPI {
     pageIndex: number,
     rect: { x: number; y: number; width: number; height: number },
   ): Promise<Uint8Array>;
+  bakeEdits(
+    pdfBytes: Uint8Array,
+    overlays: import("@/app/lib/overlayTypes").BakeOverlay[],
+    customFontBytes?: Uint8Array,
+  ): Promise<Uint8Array>;
 }
 
 // ── Promise-based message wrapper ───────────────────────────────────

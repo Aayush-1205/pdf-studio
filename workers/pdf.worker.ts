@@ -1,4 +1,54 @@
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
+
+// ── Bake Overlay Types (inline — workers can't use @/ aliases) ──────
+
+interface BakeTextOverlay {
+  type: "TEXT";
+  pageIndex: number;
+  x: number;
+  y: number;
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  color: { r: number; g: number; b: number };
+}
+
+interface BakeImageOverlay {
+  type: "IMAGE";
+  pageIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  imageBytes: Uint8Array;
+  imageType: "png" | "jpg";
+}
+
+interface BakeRectangleOverlay {
+  type: "RECTANGLE";
+  pageIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: { r: number; g: number; b: number };
+  opacity: number;
+}
+
+interface BakeDrawingOverlay {
+  type: "DRAWING";
+  pageIndex: number;
+  svgPath: string;
+  color: { r: number; g: number; b: number };
+  lineWidth: number;
+}
+
+type BakeOverlay =
+  | BakeTextOverlay
+  | BakeImageOverlay
+  | BakeRectangleOverlay
+  | BakeDrawingOverlay;
 
 // ── Font Matching Helper ────────────────────────────────────────────
 
@@ -314,6 +364,101 @@ async function addImage(
   return pdf.save();
 }
 
+// ── Unified Bake Function ───────────────────────────────────────────
+
+async function bakeEdits(
+  pdfBytes: Uint8Array,
+  overlays: BakeOverlay[],
+  customFontBytes?: Uint8Array,
+): Promise<Uint8Array> {
+  const pdf = await PDFDocument.load(pdfBytes);
+  pdf.registerFontkit(fontkit);
+
+  // Embed the custom font if provided, otherwise fall back to Helvetica
+  let customFont: Awaited<ReturnType<typeof pdf.embedFont>> | undefined;
+  if (customFontBytes && customFontBytes.length > 0) {
+    customFont = await pdf.embedFont(customFontBytes);
+  }
+
+  // Cache standard fonts to avoid re-embedding
+  const fontCache = new Map<
+    string,
+    Awaited<ReturnType<typeof pdf.embedFont>>
+  >();
+
+  async function getFont(fontFamily: string) {
+    if (customFont) return customFont;
+
+    const key = matchStandardFont(fontFamily);
+    if (fontCache.has(key)) return fontCache.get(key)!;
+
+    const font = await pdf.embedFont(StandardFonts[key]);
+    fontCache.set(key, font);
+    return font;
+  }
+
+  const pages = pdf.getPages();
+
+  for (const overlay of overlays) {
+    const page = pages[overlay.pageIndex];
+    if (!page) continue;
+
+    switch (overlay.type) {
+      case "TEXT": {
+        const font = await getFont(overlay.fontFamily);
+        page.drawText(overlay.text, {
+          x: overlay.x,
+          y: overlay.y,
+          size: overlay.fontSize,
+          font,
+          color: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
+        });
+        break;
+      }
+
+      case "IMAGE": {
+        const embeddedImage =
+          overlay.imageType === "png"
+            ? await pdf.embedPng(overlay.imageBytes)
+            : await pdf.embedJpg(overlay.imageBytes);
+        page.drawImage(embeddedImage, {
+          x: overlay.x,
+          y: overlay.y,
+          width: overlay.width,
+          height: overlay.height,
+        });
+        break;
+      }
+
+      case "RECTANGLE": {
+        page.drawRectangle({
+          x: overlay.x,
+          y: overlay.y,
+          width: overlay.width,
+          height: overlay.height,
+          color: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
+          opacity: overlay.opacity,
+          borderWidth: 0,
+        });
+        break;
+      }
+
+      case "DRAWING": {
+        if (overlay.svgPath.trim()) {
+          page.drawSvgPath(overlay.svgPath, {
+            borderColor: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
+            borderWidth: overlay.lineWidth,
+            color: undefined, // no fill
+          });
+        }
+        break;
+      }
+    }
+  }
+
+  return pdf.save();
+}
+
 async function bakeHighlights(
   pdfBytes: Uint8Array,
   highlights: Array<{
@@ -448,6 +593,8 @@ const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
       b as number,
       c as { x: number; y: number; width: number; height: number },
     ),
+  bakeEdits: (a: unknown, b: unknown, c: unknown) =>
+    bakeEdits(a as Uint8Array, b as BakeOverlay[], c as Uint8Array | undefined),
 };
 
 // ── Message handler ─────────────────────────────────────────────────

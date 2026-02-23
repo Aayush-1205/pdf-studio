@@ -134,6 +134,9 @@ export interface PDFStore {
   undoStack: HistoryEntry[];
   redoStack: HistoryEntry[];
 
+  // Custom Font
+  customFont: { name: string; buffer: ArrayBuffer } | null;
+
   // ── Actions ────────────────────────────────────────────────────────
 
   // Core
@@ -179,6 +182,9 @@ export interface PDFStore {
   undo: () => void;
   redo: () => void;
 
+  // Custom Font
+  setCustomFont: (font: { name: string; buffer: ArrayBuffer } | null) => void;
+
   // Storage
   loadFromStorage: () => Promise<void>;
   saveToStorage: (file: File | Blob) => Promise<void>;
@@ -210,6 +216,8 @@ export const usePDFStore = create<PDFStore>((setStore, getStore) => ({
 
   undoStack: [],
   redoStack: [],
+
+  customFont: null,
 
   // ── Core actions ───────────────────────────────────────────────────
 
@@ -350,6 +358,10 @@ export const usePDFStore = create<PDFStore>((setStore, getStore) => ({
       getStore().saveToStorage(last.pdfSnapshot);
     }
   },
+
+  // ── Custom Font ────────────────────────────────────────────────────
+
+  setCustomFont: (font) => setStore({ customFont: font }),
 
   // ── Storage ────────────────────────────────────────────────────────
 

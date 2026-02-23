@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { usePDFStore } from "@/app/store/usePDFStore";
 import { usePDFWorker } from "@/hooks/usePDFWorker";
 import { get } from "idb-keyval";
@@ -33,12 +33,26 @@ export function PropertyInspector() {
     setSelectedTextItem,
     saveToStorage,
     activePage,
+    customFont,
+    setCustomFont,
   } = usePDFStore();
 
   const worker = usePDFWorker();
   const [editingText, setEditingText] = useState("");
   const [isApplying, setIsApplying] = useState(false);
   const [textInitialized, setTextInitialized] = useState<string | null>(null);
+  const fontInputRef = useRef<HTMLInputElement>(null);
+
+  // Handle custom font upload
+  const handleFontUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const buffer = await file.arrayBuffer();
+      setCustomFont({ name: file.name, buffer });
+    },
+    [setCustomFont],
+  );
 
   // Initialize text editor when a text item is selected
   if (selectedTextItem && textInitialized !== selectedTextItem.id) {
@@ -434,7 +448,30 @@ export function PropertyInspector() {
                 <option value="Times New Roman">Times New Roman</option>
                 <option value="Courier">Courier</option>
                 <option value="Arial">Arial</option>
+                {customFont && (
+                  <option value={customFont.name}>✨ {customFont.name}</option>
+                )}
               </select>
+
+              {/* Custom Font Upload */}
+              <div className="space-y-1.5">
+                <input
+                  ref={fontInputRef}
+                  type="file"
+                  accept=".ttf,.otf"
+                  className="hidden"
+                  onChange={handleFontUpload}
+                />
+                <button
+                  onClick={() => fontInputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2 py-2 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-xs font-semibold text-slate-500 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50/50 transition-all"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {customFont
+                    ? `Font: ${customFont.name}`
+                    : "Upload Custom Font (.ttf)"}
+                </button>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">

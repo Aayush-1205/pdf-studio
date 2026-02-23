@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { usePDFStore } from "@/app/store/usePDFStore";
 import { usePDFWorker } from "@/hooks/usePDFWorker";
+import { useExportPDF } from "@/hooks/useExportPDF";
 import { get } from "idb-keyval";
 import {
   MousePointer2,
@@ -74,6 +75,7 @@ function EditorContent() {
   } = usePDFStore();
 
   const worker = usePDFWorker();
+  const { exportPDF, isExporting } = useExportPDF();
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -197,44 +199,10 @@ function EditorContent() {
     setActivePage,
   ]);
 
-  // ── Export ──────────────────────────────────────────────────────
+  // ── Export (now bake-aware) ─────────────────────────────────────
   const handleExport = useCallback(async () => {
-    const storedPdf = await get("active_pdf");
-    if (!storedPdf) return;
-    let buffer: ArrayBuffer;
-    if (storedPdf instanceof Blob) {
-      buffer = await storedPdf.arrayBuffer();
-    } else if (storedPdf instanceof ArrayBuffer) {
-      buffer = storedPdf;
-    } else if (ArrayBuffer.isView(storedPdf)) {
-      const view = storedPdf as Uint8Array;
-      buffer =
-        view.buffer instanceof ArrayBuffer
-          ? view.buffer.slice(
-              view.byteOffset,
-              view.byteOffset + view.byteLength,
-            )
-          : new ArrayBuffer(0);
-    } else {
-      return;
-    }
-
-    const pdfBlob = new Blob([buffer], { type: "application/pdf" });
-    const url = URL.createObjectURL(pdfBlob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "edited-document.pdf";
-    link.type = "application/pdf";
-    link.style.display = "none";
-    document.body.appendChild(link);
-    requestAnimationFrame(() => {
-      link.click();
-      setTimeout(() => {
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }, 60000);
-    });
-  }, []);
+    await exportPDF();
+  }, [exportPDF]);
 
   // ── Keyboard Shortcuts ──────────────────────────────────────────
   useEffect(() => {
@@ -432,17 +400,35 @@ function EditorContent() {
 
           <button
             onClick={handleExport}
-            disabled={!pdfUrl}
+            disabled={!pdfUrl || isExporting}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all disabled:opacity-40"
           >
-            <Download className="w-4 h-4" /> Export
+            {isExporting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                Baking...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" /> Export
+              </>
+            )}
           </button>
           <button
             onClick={handleExport}
-            disabled={!pdfUrl}
+            disabled={!pdfUrl || isExporting}
             className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 rounded-lg shadow-md transition-all disabled:opacity-40"
           >
-            <Save className="w-4 h-4" /> Save
+            {isExporting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" /> Save
+              </>
+            )}
           </button>
         </div>
       </header>
