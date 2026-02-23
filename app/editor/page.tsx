@@ -27,8 +27,17 @@ import {
   FileText,
   ArrowLeft,
   ChevronDown,
+  BoxSelect,
 } from "lucide-react";
 import Link from "next/link";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 const PDFViewer = dynamic(
   () =>
@@ -72,10 +81,14 @@ function EditorContent() {
     redo,
     loadFromStorage,
     saveToStorage,
+    saveProject,
   } = usePDFStore();
 
   const worker = usePDFWorker();
   const { exportPDF, isExporting } = useExportPDF();
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFileName, setExportFileName] = useState("document.pdf");
+  const [isSaving, setIsSaving] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -199,36 +212,55 @@ function EditorContent() {
     setActivePage,
   ]);
 
-  // ── Export (now bake-aware) ─────────────────────────────────────
-  const handleExport = useCallback(async () => {
-    await exportPDF();
-  }, [exportPDF]);
+  // ── Save & Export ─────────────────────────────────────
+  const handleSaveClick = async () => {
+    setIsSaving(true);
+    await saveProject();
+    setTimeout(() => setIsSaving(false), 800);
+  };
+
+  const handleExportClick = () => {
+    setShowExportModal(true);
+  };
+
+  const handleConfirmExport = async () => {
+    setShowExportModal(false);
+    await exportPDF(exportFileName || "document.pdf");
+  };
 
   // ── Keyboard Shortcuts ──────────────────────────────────────────
   useEffect(() => {
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.isContentEditable
-      )
+      ) {
         return;
+      }
 
       if (e.ctrlKey || e.metaKey) {
-        if (e.key === "z" && e.shiftKey) {
+        if (e.key.toLowerCase() === "z") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            redo(); // Ctrl+Shift+Z
+          } else {
+            undo(); // Ctrl+Z
+          }
+          return;
+        }
+        if (e.key.toLowerCase() === "y") {
+          // Ctrl+Y for Redo
           e.preventDefault();
           redo();
           return;
         }
-        if (e.key === "z") {
-          e.preventDefault();
-          undo();
-          return;
-        }
         if (e.key === "s") {
           e.preventDefault();
-          handleExport();
+          handleSaveClick();
           return;
         }
         if (e.key === "=") {
@@ -262,6 +294,9 @@ function EditorContent() {
         case "e":
           setActiveTool("eraser");
           break;
+        case "o":
+          setActiveTool("objectEraser");
+          break;
         case "escape":
           setActiveTool("select");
           break;
@@ -272,7 +307,7 @@ function EditorContent() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [undo, redo, handleExport, setActiveTool]);
+  }, [undo, redo, handleSaveClick, setActiveTool]);
 
   // ── Tool Config ─────────────────────────────────────────────────
   const editorTools = [
@@ -308,9 +343,15 @@ function EditorContent() {
     },
     {
       id: "eraser" as const,
-      label: "Eraser",
+      label: "Eraser (Strokes/Highlights)",
       icon: <Eraser className="w-5 h-5" />,
       shortcut: "E",
+    },
+    {
+      id: "objectEraser" as const,
+      label: "Object Eraser (PDF Elements)",
+      icon: <BoxSelect className="w-5 h-5" />,
+      shortcut: "O",
     },
   ];
 
@@ -372,16 +413,22 @@ function EditorContent() {
           <button
             onClick={undo}
             disabled={undoStack.length === 0}
-            className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 disabled:opacity-30 transition-colors"
-            title="Undo (Ctrl+Z)"
+            className={`p-2 rounded-lg transition-colors title="Undo (Ctrl+Z)" ${
+              undoStack.length > 0
+                ? "text-indigo-600 bg-indigo-50 hover:bg-indigo-100"
+                : "text-slate-400 bg-slate-50 opacity-50 cursor-not-allowed"
+            }`}
           >
             <Undo2 className="w-4 h-4" />
           </button>
           <button
             onClick={redo}
             disabled={redoStack.length === 0}
-            className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 disabled:opacity-30 transition-colors"
-            title="Redo (Ctrl+Shift+Z)"
+            className={`p-2 rounded-lg transition-colors title="Redo (Ctrl+Y / Ctrl+Shift+Z)" ${
+              redoStack.length > 0
+                ? "text-indigo-600 bg-indigo-50 hover:bg-indigo-100"
+                : "text-slate-400 bg-slate-50 opacity-50 cursor-not-allowed"
+            }`}
           >
             <Redo2 className="w-4 h-4" />
           </button>
@@ -399,7 +446,7 @@ function EditorContent() {
           <div className="w-px h-5 bg-slate-200 mx-0.5" />
 
           <button
-            onClick={handleExport}
+            onClick={handleExportClick}
             disabled={!pdfUrl || isExporting}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all disabled:opacity-40"
           >
@@ -415,11 +462,11 @@ function EditorContent() {
             )}
           </button>
           <button
-            onClick={handleExport}
-            disabled={!pdfUrl || isExporting}
+            onClick={handleSaveClick}
+            disabled={!pdfUrl || isSaving}
             className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 rounded-lg shadow-md transition-all disabled:opacity-40"
           >
-            {isExporting ? (
+            {isSaving ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Saving...
@@ -546,6 +593,41 @@ function EditorContent() {
           <PropertyInspector />
         </aside>
       </div>
+
+      {/* ── Export Modal ────────────────────────────────────────── */}
+      <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Export PDF</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <label className="text-sm font-medium text-slate-700 mb-2 block">
+              File Name
+            </label>
+            <Input
+              value={exportFileName}
+              onChange={(e) => setExportFileName(e.target.value)}
+              placeholder="e.g. document.pdf"
+              onKeyDown={(e) => e.key === "Enter" && handleConfirmExport()}
+            />
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setShowExportModal(false)}
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors border border-transparent hover:border-slate-200"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirmExport}
+              disabled={isExporting}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors shadow-sm"
+            >
+              {isExporting ? "Exporting..." : "Export"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

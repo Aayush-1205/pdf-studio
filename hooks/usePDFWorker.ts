@@ -23,6 +23,14 @@ export interface PDFWorkerAPI {
     fontName: string,
     fontSize: number,
     color: { r: number; g: number; b: number },
+    format?: {
+      isBold?: boolean;
+      isItalic?: boolean;
+      isUnderline?: boolean;
+      isStrikethrough?: boolean;
+      alignment?: "left" | "center" | "right" | "justify";
+      bgColor?: { r: number; g: number; b: number };
+    },
   ): Promise<Uint8Array>;
   addText(
     pdfBytes: Uint8Array,
@@ -33,6 +41,16 @@ export interface PDFWorkerAPI {
     fontFamily: string,
     fontSize: number,
     color: { r: number; g: number; b: number },
+    format?: {
+      isBold?: boolean;
+      isItalic?: boolean;
+      isUnderline?: boolean;
+      isStrikethrough?: boolean;
+      alignment?: "left" | "center" | "right" | "justify";
+      bgColor?: { r: number; g: number; b: number };
+    },
+    width?: number,
+    height?: number,
   ): Promise<Uint8Array>;
   replaceImage(
     pdfBytes: Uint8Array,

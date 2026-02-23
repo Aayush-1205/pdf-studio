@@ -36,6 +36,13 @@ export interface NewTextItem {
   fontFamily: string;
   fontSize: number;
   color: string;
+  isBold?: boolean;
+  isItalic?: boolean;
+  isUnderline?: boolean;
+  isStrikethrough?: boolean;
+  alignment?: "left" | "center" | "right" | "justify";
+  bgColor?: string; // hex
+  rotation?: number; // degrees
 }
 
 export interface NewImageItem {
@@ -46,6 +53,8 @@ export interface NewImageItem {
   width: number;
   height: number;
   dataUrl: string; // base64 data URL of the image
+  rotation?: number; // degrees
+  opacity?: number; // 0-1
 }
 
 // ── Tool Modes ──────────────────────────────────────────────────────
@@ -56,8 +65,10 @@ export type EditorTool =
   | "addImage"
   | "highlight"
   | "draw"
+  | "draw"
   | "shapes"
-  | "eraser"
+  | "eraser" // Now removes overlays
+  | "objectEraser" // Old PDF byte eraser
   | "signature";
 
 // ── Highlight / Draw annotations ────────────────────────────────────
@@ -99,6 +110,12 @@ export interface ShapeAnnotation {
 interface HistoryEntry {
   description: string;
   pdfSnapshot?: Blob; // For mutations that modify the PDF bytes
+  // For overlay mutations
+  newTextItems?: NewTextItem[];
+  newImageItems?: NewImageItem[];
+  highlights?: HighlightAnnotation[];
+  drawStrokes?: DrawStroke[];
+  shapes?: ShapeAnnotation[];
 }
 
 // ── The Store ───────────────────────────────────────────────────────
@@ -136,6 +153,23 @@ export interface PDFStore {
 
   // Custom Font
   customFont: { name: string; buffer: ArrayBuffer } | null;
+
+  // Tool Properties
+  drawColor: string;
+  drawSize: number;
+  drawMode:
+    | "freehand"
+    | "rect"
+    | "circle"
+    | "line"
+    | "arrow"
+    | "triangle"
+    | "star";
+  highlightColor: string;
+  highlightOpacity: number;
+  eraserErasesImages: boolean;
+  eraserErasesText: boolean;
+  eraserErasesObjectEraser: boolean;
 
   // ── Actions ────────────────────────────────────────────────────────
 
@@ -185,9 +219,22 @@ export interface PDFStore {
   // Custom Font
   setCustomFont: (font: { name: string; buffer: ArrayBuffer } | null) => void;
 
+  // Tool Properties
+  setDrawColor: (c: string) => void;
+  setDrawSize: (s: number) => void;
+  setDrawMode: (
+    m: "freehand" | "rect" | "circle" | "line" | "arrow" | "triangle" | "star",
+  ) => void;
+  setHighlightColor: (c: string) => void;
+  setHighlightOpacity: (o: number) => void;
+  setEraserErasesImages: (v: boolean) => void;
+  setEraserErasesText: (v: boolean) => void;
+  setEraserErasesObjectEraser: (v: boolean) => void;
+
   // Storage
   loadFromStorage: () => Promise<void>;
   saveToStorage: (file: File | Blob) => Promise<void>;
+  saveProject: () => Promise<void>;
 }
 
 export const usePDFStore = create<PDFStore>((setStore, getStore) => ({
@@ -218,6 +265,15 @@ export const usePDFStore = create<PDFStore>((setStore, getStore) => ({
   redoStack: [],
 
   customFont: null,
+
+  drawColor: "#000000",
+  drawSize: 2,
+  drawMode: "freehand",
+  highlightColor: "#fbbf24", // amber-400
+  highlightOpacity: 0.4,
+  eraserErasesImages: false,
+  eraserErasesText: false,
+  eraserErasesObjectEraser: false,
 
   // ── Core actions ───────────────────────────────────────────────────
 
@@ -357,11 +413,37 @@ export const usePDFStore = create<PDFStore>((setStore, getStore) => ({
     if (last.pdfSnapshot) {
       getStore().saveToStorage(last.pdfSnapshot);
     }
+    const updates: Partial<PDFStore> = {};
+    if (last.newTextItems !== undefined)
+      updates.newTextItems = last.newTextItems;
+    if (last.newImageItems !== undefined)
+      updates.newImageItems = last.newImageItems;
+    if (last.highlights !== undefined) updates.highlights = last.highlights;
+    if (last.drawStrokes !== undefined) updates.drawStrokes = last.drawStrokes;
+    if (last.shapes !== undefined) updates.shapes = last.shapes;
+
+    updates.selectedTextItem = null;
+    updates.selectedImage = null;
+    updates.selectedNewTextId = null;
+    updates.selectedNewImageId = null;
+
+    setStore(updates);
   },
 
   // ── Custom Font ────────────────────────────────────────────────────
 
   setCustomFont: (font) => setStore({ customFont: font }),
+
+  // ── Tool Properties ────────────────────────────────────────────────
+
+  setDrawColor: (c) => setStore({ drawColor: c }),
+  setDrawSize: (s) => setStore({ drawSize: s }),
+  setDrawMode: (m) => setStore({ drawMode: m }),
+  setHighlightColor: (c) => setStore({ highlightColor: c }),
+  setHighlightOpacity: (o) => setStore({ highlightOpacity: o }),
+  setEraserErasesImages: (v) => setStore({ eraserErasesImages: v }),
+  setEraserErasesText: (v) => setStore({ eraserErasesText: v }),
+  setEraserErasesObjectEraser: (v) => setStore({ eraserErasesObjectEraser: v }),
 
   // ── Storage ────────────────────────────────────────────────────────
 
@@ -371,6 +453,17 @@ export const usePDFStore = create<PDFStore>((setStore, getStore) => ({
       if (storedPdf instanceof Blob) {
         const url = URL.createObjectURL(storedPdf);
         setStore({ pdfUrl: url });
+      }
+
+      const storedOverlays = await get("pdf_overlays");
+      if (storedOverlays) {
+        setStore({
+          newTextItems: storedOverlays.newTextItems || [],
+          newImageItems: storedOverlays.newImageItems || [],
+          highlights: storedOverlays.highlights || [],
+          drawStrokes: storedOverlays.drawStrokes || [],
+          shapes: storedOverlays.shapes || [],
+        });
       }
     } catch (e) {
       console.error("Failed to load PDF from storage:", e);
@@ -395,6 +488,21 @@ export const usePDFStore = create<PDFStore>((setStore, getStore) => ({
       });
     } catch (e) {
       console.error("Failed to save PDF to storage:", e);
+    }
+  },
+
+  saveProject: async () => {
+    try {
+      const state = getStore();
+      await set("pdf_overlays", {
+        newTextItems: state.newTextItems,
+        newImageItems: state.newImageItems,
+        highlights: state.highlights,
+        drawStrokes: state.drawStrokes,
+        shapes: state.shapes,
+      });
+    } catch (e) {
+      console.error("Failed to save project overlays:", e);
     }
   },
 }));

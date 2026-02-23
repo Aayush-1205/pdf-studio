@@ -87,6 +87,18 @@ export function useExportPDF() {
         for (const t of newTextItems) {
           const ph = pageHeights[t.pageIndex] ?? 842; // A4 fallback
           const color = hexToRgb01(t.color);
+
+          let bgColor;
+          if (t.bgColor) {
+            bgColor = hexToRgb01(t.bgColor);
+          }
+
+          // Width/height approximation for background colors
+          const lines = t.text.split("\n");
+          const maxLineLength = Math.max(...lines.map((l) => l.length));
+          const approxWidth = maxLineLength * t.fontSize * 0.6;
+          const approxHeight = lines.length * t.fontSize * 1.2;
+
           overlays.push({
             type: "TEXT",
             pageIndex: t.pageIndex,
@@ -96,6 +108,14 @@ export function useExportPDF() {
             fontFamily: t.fontFamily,
             fontSize: t.fontSize,
             color,
+            isBold: t.isBold,
+            isItalic: t.isItalic,
+            isUnderline: t.isUnderline,
+            isStrikethrough: t.isStrikethrough,
+            alignment: t.alignment,
+            bgColor,
+            width: approxWidth,
+            height: approxHeight,
           });
         }
 
@@ -111,6 +131,8 @@ export function useExportPDF() {
             height: img.height,
             imageBytes: bytes,
             imageType,
+            rotation: img.rotation,
+            opacity: img.opacity,
           });
         }
 
@@ -152,6 +174,26 @@ export function useExportPDF() {
             svgPath: pdfPath,
             color,
             lineWidth: stroke.lineWidth,
+          });
+        }
+
+        // Shapes (stored as screen-space pixel coords)
+        const { shapes } = state;
+        for (const shape of shapes) {
+          const ph = pageHeights[shape.pageIndex] ?? 842;
+          const zoom = state.zoom;
+          const color = hexToRgb01(shape.strokeColor);
+
+          overlays.push({
+            type: "SHAPE",
+            pageIndex: shape.pageIndex,
+            shapeType: shape.type,
+            x: shape.x / zoom,
+            y: domYtoPdfY(shape.y / zoom, ph, shape.height / zoom), // Bottom-left Y in PDF coords
+            width: shape.width / zoom,
+            height: shape.height / zoom,
+            color,
+            lineWidth: shape.lineWidth,
           });
         }
 

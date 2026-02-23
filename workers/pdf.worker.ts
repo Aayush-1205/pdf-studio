@@ -12,6 +12,14 @@ interface BakeTextOverlay {
   fontFamily: string;
   fontSize: number;
   color: { r: number; g: number; b: number };
+  isBold?: boolean;
+  isItalic?: boolean;
+  isUnderline?: boolean;
+  isStrikethrough?: boolean;
+  alignment?: "left" | "center" | "right" | "justify";
+  bgColor?: { r: number; g: number; b: number };
+  width: number;
+  height: number;
 }
 
 interface BakeImageOverlay {
@@ -23,6 +31,8 @@ interface BakeImageOverlay {
   height: number;
   imageBytes: Uint8Array;
   imageType: "png" | "jpg";
+  rotation?: number; // degrees
+  opacity?: number;
 }
 
 interface BakeRectangleOverlay {
@@ -44,11 +54,24 @@ interface BakeDrawingOverlay {
   lineWidth: number;
 }
 
+interface BakeShapeOverlay {
+  type: "SHAPE";
+  pageIndex: number;
+  shapeType: "rect" | "circle" | "line" | "arrow" | "triangle" | "star";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: { r: number; g: number; b: number };
+  lineWidth: number;
+}
+
 type BakeOverlay =
   | BakeTextOverlay
   | BakeImageOverlay
   | BakeRectangleOverlay
-  | BakeDrawingOverlay;
+  | BakeDrawingOverlay
+  | BakeShapeOverlay;
 
 // ── Font Matching Helper ────────────────────────────────────────────
 
@@ -90,38 +113,48 @@ function normalizeFontName(pdfFontName: string): string {
     .trim();
 }
 
-function matchStandardFont(pdfFontName: string): keyof typeof StandardFonts {
-  // Try direct match first
-  const normalized = normalizeFontName(pdfFontName);
-  if (FONT_MAP[normalized]) return FONT_MAP[normalized];
-  for (const [key, value] of Object.entries(FONT_MAP)) {
-    if (normalized.includes(key)) return value;
-  }
+function matchStandardFont(fontName: string): keyof typeof StandardFonts {
+  const f = fontName.toLowerCase();
 
-  // For generated/subset names (g_d0_f2, ABCDEF+Font, etc.) — detect style hints
-  const lower = pdfFontName.toLowerCase();
-  const isBold = /bold|heavy|black|demi/i.test(lower);
-  const isItalic = /italic|oblique|slant/i.test(lower);
-  const isSerif = /serif|times|georgia|garamond|palatino|cambria/i.test(lower);
-  const isMono = /courier|mono|consolas|menlo|code/i.test(lower);
-
-  if (isMono) {
-    if (isBold && isItalic) return "CourierBoldOblique";
-    if (isBold) return "CourierBold";
-    if (isItalic) return "CourierOblique";
-    return "Courier";
-  }
-  if (isSerif) {
-    if (isBold && isItalic) return "TimesRomanBoldItalic";
-    if (isBold) return "TimesRomanBold";
-    if (isItalic) return "TimesRomanItalic";
+  if (f.includes("times")) {
+    if (f.includes("bold") && f.includes("italic"))
+      return "TimesRomanBoldItalic";
+    if (f.includes("bold")) return "TimesRomanBold";
+    if (f.includes("italic") || f.includes("oblique"))
+      return "TimesRomanItalic";
     return "TimesRoman";
   }
-  // Default sans-serif
-  if (isBold && isItalic) return "HelveticaBoldOblique";
-  if (isBold) return "HelveticaBold";
-  if (isItalic) return "HelveticaOblique";
+
+  if (f.includes("courier")) {
+    if (f.includes("bold") && f.includes("oblique"))
+      return "CourierBoldOblique";
+    if (f.includes("bold")) return "CourierBold";
+    if (f.includes("oblique") || f.includes("italic")) return "CourierOblique";
+    return "Courier";
+  }
+
+  // Default to Helvetica variants
+  if (f.includes("bold") && f.includes("oblique"))
+    return "HelveticaBoldOblique";
+  if (f.includes("bold")) return "HelveticaBold";
+  if (f.includes("oblique") || f.includes("italic")) return "HelveticaOblique";
   return "Helvetica";
+}
+
+function getFormattedFontKey(
+  baseFont: string,
+  isBold?: boolean,
+  isItalic?: boolean,
+): keyof typeof StandardFonts {
+  let name = baseFont;
+  if (isBold && !name.toLowerCase().includes("bold")) name += "-Bold";
+  if (
+    isItalic &&
+    !name.toLowerCase().includes("italic") &&
+    !name.toLowerCase().includes("oblique")
+  )
+    name += "-Oblique";
+  return matchStandardFont(name);
 }
 
 // ── Worker methods (plain functions) ────────────────────────────────
@@ -196,6 +229,78 @@ async function rotatePage(
   return pdf.save();
 }
 
+// ── Shared Text Drawing Helper ────────────────────────────────────────
+
+async function drawFormattedText(
+  page: import("pdf-lib").PDFPage,
+  font: import("pdf-lib").PDFFont,
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fontSize: number,
+  color: { r: number; g: number; b: number },
+  format?: {
+    isUnderline?: boolean;
+    isStrikethrough?: boolean;
+    alignment?: "left" | "center" | "right" | "justify";
+    bgColor?: { r: number; g: number; b: number };
+  },
+) {
+  const textWidth = font.widthOfTextAtSize(text, fontSize);
+
+  let finalX = x;
+  // Handle alignment
+  if (format?.alignment === "center") {
+    finalX = x + width / 2 - textWidth / 2;
+  } else if (format?.alignment === "right") {
+    finalX = x + width - textWidth;
+  }
+
+  // Background color
+  if (format?.bgColor) {
+    page.drawRectangle({
+      x: x,
+      y: y - fontSize * 0.2, // Cover descenders
+      width: width,
+      height: height || fontSize * 1.2,
+      color: rgb(format.bgColor.r, format.bgColor.g, format.bgColor.b),
+      borderWidth: 0,
+    });
+  }
+
+  const textColor = rgb(color.r, color.g, color.b);
+  page.drawText(text, {
+    x: finalX,
+    y: y,
+    size: fontSize,
+    font,
+    color: textColor,
+  });
+
+  // Underline and Strikethrough
+  if (format?.isUnderline || format?.isStrikethrough) {
+    const thickness = Math.max(1, fontSize * 0.08);
+    if (format.isUnderline) {
+      page.drawLine({
+        start: { x: finalX, y: y - thickness * 2 },
+        end: { x: finalX + textWidth, y: y - thickness * 2 },
+        color: textColor,
+        thickness,
+      });
+    }
+    if (format.isStrikethrough) {
+      page.drawLine({
+        start: { x: finalX, y: y + fontSize * 0.3 },
+        end: { x: finalX + textWidth, y: y + fontSize * 0.3 },
+        color: textColor,
+        thickness,
+      });
+    }
+  }
+}
+
 async function replaceText(
   pdfBytes: Uint8Array,
   pageIndex: number,
@@ -204,6 +309,14 @@ async function replaceText(
   fontName: string,
   fontSize: number,
   color: { r: number; g: number; b: number },
+  format?: {
+    isBold?: boolean;
+    isItalic?: boolean;
+    isUnderline?: boolean;
+    isStrikethrough?: boolean;
+    alignment?: "left" | "center" | "right" | "justify";
+    bgColor?: { r: number; g: number; b: number };
+  },
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(pdfBytes);
   const page = pdf.getPage(pageIndex);
@@ -221,19 +334,28 @@ async function replaceText(
 
   // Only draw new text if it's not empty (allows erasing by submitting empty text)
   if (newText.trim().length > 0) {
-    const fontKey = matchStandardFont(fontName);
+    const fontKey = getFormattedFontKey(
+      fontName,
+      format?.isBold,
+      format?.isItalic,
+    );
     const font = await pdf.embedFont(StandardFonts[fontKey]);
 
     // Position text at the baseline (bottom of rect + descent offset)
     const baselineY = rect.y + fontSize * 0.15;
 
-    page.drawText(newText, {
-      x: rect.x,
-      y: baselineY,
-      size: fontSize,
+    await drawFormattedText(
+      page,
       font,
-      color: rgb(color.r / 255, color.g / 255, color.b / 255),
-    });
+      newText,
+      rect.x,
+      baselineY,
+      rect.width,
+      rect.height,
+      fontSize,
+      { r: color.r / 255, g: color.g / 255, b: color.b / 255 },
+      format,
+    );
   }
 
   return pdf.save();
@@ -269,20 +391,39 @@ async function addText(
   fontFamily: string,
   fontSize: number,
   color: { r: number; g: number; b: number },
+  format?: {
+    isBold?: boolean;
+    isItalic?: boolean;
+    isUnderline?: boolean;
+    isStrikethrough?: boolean;
+    alignment?: "left" | "center" | "right" | "justify";
+    bgColor?: { r: number; g: number; b: number };
+  },
+  width: number = 200,
+  height: number = 50,
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(pdfBytes);
   const page = pdf.getPage(pageIndex);
 
-  const fontKey = matchStandardFont(fontFamily);
+  const fontKey = getFormattedFontKey(
+    fontFamily,
+    format?.isBold,
+    format?.isItalic,
+  );
   const font = await pdf.embedFont(StandardFonts[fontKey]);
 
-  page.drawText(text, {
+  await drawFormattedText(
+    page,
+    font,
+    text,
     x,
     y,
-    size: fontSize,
-    font,
-    color: rgb(color.r / 255, color.g / 255, color.b / 255),
-  });
+    width,
+    height,
+    fontSize,
+    { r: color.r / 255, g: color.g / 255, b: color.b / 255 },
+    format,
+  );
 
   return pdf.save();
 }
@@ -386,10 +527,14 @@ async function bakeEdits(
     Awaited<ReturnType<typeof pdf.embedFont>>
   >();
 
-  async function getFont(fontFamily: string) {
+  async function getFont(
+    fontFamily: string,
+    isBold?: boolean,
+    isItalic?: boolean,
+  ) {
     if (customFont) return customFont;
 
-    const key = matchStandardFont(fontFamily);
+    const key = getFormattedFontKey(fontFamily, isBold, isItalic);
     if (fontCache.has(key)) return fontCache.get(key)!;
 
     const font = await pdf.embedFont(StandardFonts[key]);
@@ -405,14 +550,28 @@ async function bakeEdits(
 
     switch (overlay.type) {
       case "TEXT": {
-        const font = await getFont(overlay.fontFamily);
-        page.drawText(overlay.text, {
-          x: overlay.x,
-          y: overlay.y,
-          size: overlay.fontSize,
+        const font = await getFont(
+          overlay.fontFamily,
+          overlay.isBold,
+          overlay.isItalic,
+        );
+        await drawFormattedText(
+          page,
           font,
-          color: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
-        });
+          overlay.text,
+          overlay.x,
+          overlay.y,
+          overlay.width,
+          overlay.height,
+          overlay.fontSize,
+          overlay.color,
+          {
+            alignment: overlay.alignment,
+            bgColor: overlay.bgColor,
+            isUnderline: overlay.isUnderline,
+            isStrikethrough: overlay.isStrikethrough,
+          },
+        );
         break;
       }
 
@@ -426,6 +585,8 @@ async function bakeEdits(
           y: overlay.y,
           width: overlay.width,
           height: overlay.height,
+          rotate: overlay.rotation ? degrees(overlay.rotation) : degrees(0),
+          opacity: typeof overlay.opacity === "number" ? overlay.opacity : 1,
         });
         break;
       }
@@ -449,6 +610,62 @@ async function bakeEdits(
             borderColor: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
             borderWidth: overlay.lineWidth,
             color: undefined, // no fill
+          });
+        }
+        break;
+      }
+
+      case "SHAPE": {
+        const {
+          shapeType,
+          x,
+          y,
+          width: w,
+          height: h,
+          color,
+          lineWidth,
+        } = overlay as any; // Type workaround for SHAPE
+        const colorRgb = rgb(color.r, color.g, color.b);
+        let path = "";
+
+        if (shapeType === "rect") {
+          path = `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x} ${y + h} Z`;
+        } else if (shapeType === "circle") {
+          path = `M ${x + w / 2} ${y + h} A ${w / 2} ${h / 2} 0 1 0 ${x + w / 2} ${y} A ${w / 2} ${h / 2} 0 1 0 ${x + w / 2} ${y + h}`;
+        } else if (shapeType === "line") {
+          path = `M ${x} ${y + h} L ${x + w} ${y}`;
+        } else if (shapeType === "arrow") {
+          const headlen = 10;
+          const ang = Math.atan2(-h, w);
+          path = `M ${x} ${y + h} L ${x + w} ${y} `;
+          const x1 = x + w - headlen * Math.cos(ang - Math.PI / 6);
+          const y1 = y - headlen * Math.sin(ang - Math.PI / 6);
+          path += `M ${x + w} ${y} L ${x1} ${y1} `;
+          const x2 = x + w - headlen * Math.cos(ang + Math.PI / 6);
+          const y2 = y - headlen * Math.sin(ang + Math.PI / 6);
+          path += `M ${x + w} ${y} L ${x2} ${y2}`;
+        } else if (shapeType === "triangle") {
+          path = `M ${x + w / 2} ${y + h} L ${x + w} ${y} L ${x} ${y} Z`;
+        } else if (shapeType === "star") {
+          const cx = x + w / 2;
+          const cy = y + h / 2;
+          const outerRad = Math.min(w, h) / 2;
+          const innerRad = outerRad / 2.5;
+          for (let i = 0; i < 10; i++) {
+            const r = i % 2 === 0 ? outerRad : innerRad;
+            const a = -(Math.PI * 2 * i) / 10 + Math.PI / 2;
+            const px = cx + Math.cos(a) * r;
+            const py = cy + Math.sin(a) * r;
+            path += i === 0 ? `M ${px} ${py} ` : `L ${px} ${py} `;
+          }
+          path += "Z";
+        }
+
+        if (path) {
+          page.drawSvgPath(path, {
+            borderColor: colorRgb,
+            borderWidth: lineWidth,
+            color: undefined,
           });
         }
         break;
@@ -510,6 +727,7 @@ const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
     e: unknown,
     f: unknown,
     g: unknown,
+    h: unknown,
   ) =>
     replaceText(
       a as Uint8Array,
@@ -519,6 +737,14 @@ const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
       e as string,
       f as number,
       g as { r: number; g: number; b: number },
+      h as {
+        isBold?: boolean;
+        isItalic?: boolean;
+        isUnderline?: boolean;
+        isStrikethrough?: boolean;
+        alignment?: "left" | "center" | "right" | "justify";
+        bgColor?: { r: number; g: number; b: number };
+      },
     ),
   addText: (
     a: unknown,
@@ -529,6 +755,9 @@ const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
     f: unknown,
     g: unknown,
     h: unknown,
+    i: unknown,
+    j: unknown,
+    k: unknown,
   ) =>
     addText(
       a as Uint8Array,
@@ -539,6 +768,16 @@ const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
       f as string,
       g as number,
       h as { r: number; g: number; b: number },
+      i as {
+        isBold?: boolean;
+        isItalic?: boolean;
+        isUnderline?: boolean;
+        isStrikethrough?: boolean;
+        alignment?: "left" | "center" | "right" | "justify";
+        bgColor?: { r: number; g: number; b: number };
+      },
+      j as number,
+      k as number,
     ),
   replaceImage: (a: unknown, b: unknown, c: unknown, d: unknown, e: unknown) =>
     replaceImage(

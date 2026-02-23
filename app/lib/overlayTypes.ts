@@ -13,6 +13,14 @@ export interface BakeTextOverlay {
   fontFamily: string;
   fontSize: number;
   color: { r: number; g: number; b: number }; // 0–1 range
+  isBold?: boolean;
+  isItalic?: boolean;
+  isUnderline?: boolean;
+  isStrikethrough?: boolean;
+  alignment?: "left" | "center" | "right" | "justify";
+  bgColor?: { r: number; g: number; b: number };
+  width: number; // needed for alignment/bg
+  height: number;
 }
 
 export interface BakeImageOverlay {
@@ -24,6 +32,8 @@ export interface BakeImageOverlay {
   height: number;
   imageBytes: Uint8Array;
   imageType: "png" | "jpg";
+  rotation?: number; // degrees
+  opacity?: number;
 }
 
 export interface BakeRectangleOverlay {
@@ -45,8 +55,21 @@ export interface BakeDrawingOverlay {
   lineWidth: number;
 }
 
+export interface BakeShapeOverlay {
+  type: "SHAPE";
+  pageIndex: number;
+  shapeType: "rect" | "circle" | "line" | "arrow" | "triangle" | "star";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: { r: number; g: number; b: number };
+  lineWidth: number;
+}
+
 export type BakeOverlay =
   | BakeTextOverlay
   | BakeImageOverlay
   | BakeRectangleOverlay
-  | BakeDrawingOverlay;
+  | BakeDrawingOverlay
+  | BakeShapeOverlay;

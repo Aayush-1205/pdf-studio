@@ -8,13 +8,26 @@ import {
   Settings2,
   Type,
   Image as ImageIcon,
-  Trash2,
-  Upload,
+  FileText,
   Check,
   X,
+  Upload,
+  Trash2,
+  SlidersHorizontal,
+  MousePointer2,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
   Move,
   Palette,
+  Eraser,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 
 export function PropertyInspector() {
   const {
@@ -35,12 +48,41 @@ export function PropertyInspector() {
     activePage,
     customFont,
     setCustomFont,
+    activeTool,
+    drawColor,
+    setDrawColor,
+    drawSize,
+    setDrawSize,
+    highlightColor,
+    setHighlightColor,
+    highlightOpacity,
+    setHighlightOpacity,
+    drawMode,
+    setDrawMode,
+    eraserErasesText,
+    setEraserErasesText,
+    eraserErasesImages,
+    setEraserErasesImages,
+    eraserErasesObjectEraser,
+    setEraserErasesObjectEraser,
   } = usePDFStore();
 
   const worker = usePDFWorker();
   const [editingText, setEditingText] = useState("");
   const [isApplying, setIsApplying] = useState(false);
   const [textInitialized, setTextInitialized] = useState<string | null>(null);
+
+  // Local state for existing text replacement formatting
+  const [replacementColor, setReplacementColor] = useState("#000000");
+  const [replacementBgColor, setReplacementBgColor] = useState("");
+  const [isBold, setIsBold] = useState(false);
+  const [isItalic, setIsItalic] = useState(false);
+  const [isUnderline, setIsUnderline] = useState(false);
+  const [isStrikethrough, setIsStrikethrough] = useState(false);
+  const [alignment, setAlignment] = useState<"left" | "center" | "right">(
+    "left",
+  );
+
   const fontInputRef = useRef<HTMLInputElement>(null);
 
   // Handle custom font upload
@@ -58,6 +100,15 @@ export function PropertyInspector() {
   if (selectedTextItem && textInitialized !== selectedTextItem.id) {
     setEditingText(selectedTextItem.str);
     setTextInitialized(selectedTextItem.id);
+
+    // Reset formatting explicitly when selecting a new text item
+    setReplacementColor("#000000");
+    setReplacementBgColor("");
+    setIsBold(false);
+    setIsItalic(false);
+    setIsUnderline(false);
+    setIsStrikethrough(false);
+    setAlignment("left");
   }
 
   // ── Helper: get PDF bytes ──────────────────────────────────────
@@ -90,6 +141,32 @@ export function PropertyInspector() {
       const topPad = fontSize * 0.15; // slight ascender coverage
       const bottomPad = fontSize * 0.2; // slight descender coverage
 
+      const parsedColor =
+        replacementColor && replacementColor !== ""
+          ? (() => {
+              const hex = replacementColor.replace(/^#/, "");
+              const num = parseInt(hex, 16);
+              return {
+                r: (num >> 16) & 255,
+                g: (num >> 8) & 255,
+                b: num & 255,
+              };
+            })()
+          : { r: 0, g: 0, b: 0 };
+
+      const parsedBgColor =
+        replacementBgColor && replacementBgColor !== ""
+          ? (() => {
+              const hex = replacementBgColor.replace(/^#/, "");
+              const num = parseInt(hex, 16);
+              return {
+                r: ((num >> 16) & 255) / 255,
+                g: ((num >> 8) & 255) / 255,
+                b: (num & 255) / 255,
+              };
+            })()
+          : undefined;
+
       const result = await worker.replaceText(
         bytes,
         selectedTextItem.pageIndex,
@@ -102,7 +179,15 @@ export function PropertyInspector() {
         editingText,
         selectedTextItem.fontName,
         fontSize,
-        { r: 0, g: 0, b: 0 },
+        parsedColor,
+        {
+          isBold,
+          isItalic,
+          isUnderline,
+          isStrikethrough,
+          alignment,
+          bgColor: parsedBgColor,
+        },
       );
 
       const blob = new Blob([result as unknown as BlobPart], {
@@ -124,6 +209,13 @@ export function PropertyInspector() {
     getPdfBytes,
     saveToStorage,
     setSelectedTextItem,
+    replacementColor,
+    replacementBgColor,
+    isBold,
+    isItalic,
+    isUnderline,
+    isStrikethrough,
+    alignment,
   ]);
 
   // ── Delete Image ───────────────────────────────────────────────
@@ -290,6 +382,98 @@ export function PropertyInspector() {
                 className="w-full text-sm p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none min-h-[120px] shadow-sm transition-all font-mono"
                 placeholder="Edit text content..."
               />
+            </div>
+
+            <div className="h-px bg-slate-100" />
+
+            <div className="space-y-4">
+              {/* Color & Alignment */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[10px] font-semibold text-slate-500 uppercase">
+                    Color
+                  </label>
+                  <input
+                    type="color"
+                    value={replacementColor}
+                    onChange={(e) => setReplacementColor(e.target.value)}
+                    className="w-full h-8 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-0.5 shadow-sm"
+                  />
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[10px] font-semibold text-slate-500 uppercase">
+                    BG Color
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="color"
+                      value={replacementBgColor || "#ffffff"}
+                      onChange={(e) => setReplacementBgColor(e.target.value)}
+                      className="w-full h-8 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-0.5 shadow-sm"
+                    />
+                    {replacementBgColor && (
+                      <button
+                        onClick={() => setReplacementBgColor("")}
+                        className="p-1 text-slate-400 hover:text-red-500 rounded bg-slate-100"
+                        title="Clear background"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-semibold text-slate-500 uppercase">
+                  Formatting
+                </label>
+                <div className="flex items-center gap-1 bg-slate-50 p-1 border border-slate-200 rounded-lg">
+                  <button
+                    onClick={() => setIsBold(!isBold)}
+                    className={`p-1.5 rounded transition-colors ${isBold ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <Bold className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setIsItalic(!isItalic)}
+                    className={`p-1.5 rounded transition-colors ${isItalic ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <Italic className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setIsUnderline(!isUnderline)}
+                    className={`p-1.5 rounded transition-colors ${isUnderline ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <Underline className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setIsStrikethrough(!isStrikethrough)}
+                    className={`p-1.5 rounded transition-colors ${isStrikethrough ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <Strikethrough className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-slate-200 mx-1" />
+                  <button
+                    onClick={() => setAlignment("left")}
+                    className={`p-1.5 rounded transition-colors ${alignment === "left" ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <AlignLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setAlignment("center")}
+                    className={`p-1.5 rounded transition-colors ${alignment === "center" ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <AlignCenter className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setAlignment("right")}
+                    className={`p-1.5 rounded transition-colors ${alignment === "right" ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <AlignRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="h-px bg-slate-100" />
@@ -512,6 +696,118 @@ export function PropertyInspector() {
                   </div>
                 </div>
               </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[10px] font-semibold text-slate-500 uppercase">
+                    BG Color
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="color"
+                      value={selectedNewText.bgColor || "#ffffff"}
+                      onChange={(e) =>
+                        updateNewTextItem(selectedNewText.id, {
+                          bgColor: e.target.value,
+                        })
+                      }
+                      className="w-full h-8 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-0.5 shadow-sm"
+                    />
+                    {selectedNewText.bgColor && (
+                      <button
+                        onClick={() =>
+                          updateNewTextItem(selectedNewText.id, {
+                            bgColor: undefined,
+                          })
+                        }
+                        className="p-1 text-slate-400 hover:text-red-500 rounded bg-slate-100"
+                        title="Clear background"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 mt-2">
+                <label className="text-[10px] font-semibold text-slate-500 uppercase">
+                  Formatting
+                </label>
+                <div className="flex items-center gap-1 bg-slate-50 p-1 border border-slate-200 rounded-lg">
+                  <button
+                    onClick={() =>
+                      updateNewTextItem(selectedNewText.id, {
+                        isBold: !selectedNewText.isBold,
+                      })
+                    }
+                    className={`p-1.5 rounded transition-colors ${selectedNewText.isBold ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <Bold className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      updateNewTextItem(selectedNewText.id, {
+                        isItalic: !selectedNewText.isItalic,
+                      })
+                    }
+                    className={`p-1.5 rounded transition-colors ${selectedNewText.isItalic ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <Italic className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      updateNewTextItem(selectedNewText.id, {
+                        isUnderline: !selectedNewText.isUnderline,
+                      })
+                    }
+                    className={`p-1.5 rounded transition-colors ${selectedNewText.isUnderline ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <Underline className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      updateNewTextItem(selectedNewText.id, {
+                        isStrikethrough: !selectedNewText.isStrikethrough,
+                      })
+                    }
+                    className={`p-1.5 rounded transition-colors ${selectedNewText.isStrikethrough ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <Strikethrough className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-slate-200 mx-1" />
+                  <button
+                    onClick={() =>
+                      updateNewTextItem(selectedNewText.id, {
+                        alignment: "left",
+                      })
+                    }
+                    className={`p-1.5 rounded transition-colors ${selectedNewText.alignment === "left" || !selectedNewText.alignment ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <AlignLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      updateNewTextItem(selectedNewText.id, {
+                        alignment: "center",
+                      })
+                    }
+                    className={`p-1.5 rounded transition-colors ${selectedNewText.alignment === "center" ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <AlignCenter className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      updateNewTextItem(selectedNewText.id, {
+                        alignment: "right",
+                      })
+                    }
+                    className={`p-1.5 rounded transition-colors ${selectedNewText.alignment === "right" ? "bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300" : "text-slate-500 hover:bg-slate-100"}`}
+                  >
+                    <AlignRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-50 p-3 rounded-lg">
@@ -582,6 +878,50 @@ export function PropertyInspector() {
               </div>
             </div>
 
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase">
+                  <span>Opacity</span>
+                  <span>
+                    {Math.round((selectedNewImage.opacity ?? 1) * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={selectedNewImage.opacity ?? 1}
+                  onChange={(e) =>
+                    updateNewImageItem(selectedNewImage.id, {
+                      opacity: Number(e.target.value),
+                    })
+                  }
+                  className="w-full accent-blue-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase">
+                  <span>Rotation</span>
+                  <span>{selectedNewImage.rotation || 0}°</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="1"
+                  value={selectedNewImage.rotation || 0}
+                  onChange={(e) =>
+                    updateNewImageItem(selectedNewImage.id, {
+                      rotation: Number(e.target.value),
+                    })
+                  }
+                  className="w-full accent-blue-500"
+                />
+              </div>
+            </div>
+
             <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-50 p-3 rounded-lg">
               <Move className="w-4 h-4 shrink-0" />
               <span>Drag this element on the canvas to reposition</span>
@@ -598,21 +938,176 @@ export function PropertyInspector() {
           </div>
         )}
 
-        {/* ── Nothing selected ──────────────────────────────────── */}
-        {!hasSelection && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-20">
-            <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-              <Palette className="w-7 h-7 text-slate-300" />
+        {/* ── Tool Properties (no object selected but tool active) ──── */}
+        {!hasSelection && activeTool === "draw" && (
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5" /> Draw Tool
+              </label>
             </div>
-            <p className="text-sm font-medium text-slate-600 mb-2">
-              No Element Selected
-            </p>
-            <p className="text-xs text-slate-400 max-w-[200px] leading-relaxed">
-              Click on text or images in the PDF to edit them, or use the
-              toolbar to add new content.
-            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-semibold text-slate-500 uppercase">
+                Shape
+              </label>
+              <select
+                value={drawMode}
+                onChange={(e) => setDrawMode(e.target.value as any)}
+                className="w-full text-xs p-2 rounded-lg bg-slate-50 border border-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700"
+              >
+                <option value="freehand">Freehand</option>
+                <option value="rect">Rectangle</option>
+                <option value="circle">Circle</option>
+                <option value="line">Line</option>
+                <option value="arrow">Arrow</option>
+                <option value="triangle">Triangle</option>
+                <option value="star">Star</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-semibold text-slate-500 uppercase">
+                Color
+              </label>
+              <input
+                type="color"
+                value={drawColor}
+                onChange={(e) => setDrawColor(e.target.value)}
+                className="w-full h-8 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-0.5 shadow-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase">
+                <span>Stroke Width</span>
+                <span>{drawSize}px</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="20"
+                step="1"
+                value={drawSize}
+                onChange={(e) => setDrawSize(Number(e.target.value))}
+                className="w-full accent-blue-500"
+              />
+            </div>
           </div>
         )}
+
+        {!hasSelection && activeTool === "highlight" && (
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5" /> Highlight Tool
+              </label>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-semibold text-slate-500 uppercase">
+                Color
+              </label>
+              <input
+                type="color"
+                value={highlightColor}
+                onChange={(e) => setHighlightColor(e.target.value)}
+                className="w-full h-8 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-0.5 shadow-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase">
+                <span>Opacity</span>
+                <span>{Math.round(highlightOpacity * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value={highlightOpacity}
+                onChange={(e) => setHighlightOpacity(Number(e.target.value))}
+                className="w-full accent-blue-500"
+              />
+            </div>
+          </div>
+        )}
+
+        {!hasSelection && activeTool === "eraser" && (
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Eraser className="w-3.5 h-3.5" /> Eraser Config
+              </label>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Removes drawn strokes, shapes, and highlights by default.
+              Configure it to also erase:
+            </p>
+
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="erase-text"
+                  checked={eraserErasesText}
+                  onCheckedChange={(c) => setEraserErasesText(!!c)}
+                />
+                <Label
+                  htmlFor="erase-text"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Custom Text
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="erase-images"
+                  checked={eraserErasesImages}
+                  onCheckedChange={(c) => setEraserErasesImages(!!c)}
+                />
+                <Label
+                  htmlFor="erase-images"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Placed Images
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="erase-object"
+                  checked={eraserErasesObjectEraser}
+                  onCheckedChange={(c) => setEraserErasesObjectEraser(!!c)}
+                />
+                <Label
+                  htmlFor="erase-object"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-slate-700"
+                >
+                  PDF Byte Erasure (Object Eraser)
+                </Label>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Nothing selected and no properties tool ─────────────── */}
+        {!hasSelection &&
+          activeTool !== "draw" &&
+          activeTool !== "eraser" &&
+          activeTool !== "highlight" && (
+            <div className="flex flex-col items-center justify-center h-full text-center py-20">
+              <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
+                <Palette className="w-7 h-7 text-slate-300" />
+              </div>
+              <p className="text-sm font-medium text-slate-600 mb-2">
+                No Element Selected
+              </p>
+              <p className="text-xs text-slate-400 max-w-[200px] leading-relaxed">
+                Click on text or images in returned text properties...
+              </p>
+            </div>
+          )}
       </div>
     </aside>
   );
