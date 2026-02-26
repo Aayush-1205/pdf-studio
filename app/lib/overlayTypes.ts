@@ -63,7 +63,8 @@ export interface BakeShapeOverlay {
   y: number;
   width: number;
   height: number;
-  color: { r: number; g: number; b: number };
+  color?: { r: number; g: number; b: number };
+  fillColor?: { r: number; g: number; b: number };
   lineWidth: number;
 }
 

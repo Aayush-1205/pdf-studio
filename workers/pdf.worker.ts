@@ -62,7 +62,8 @@ interface BakeShapeOverlay {
   y: number;
   width: number;
   height: number;
-  color: { r: number; g: number; b: number };
+  color?: { r: number; g: number; b: number };
+  fillColor?: { r: number; g: number; b: number };
   lineWidth: number;
 }
 
@@ -322,7 +323,7 @@ async function replaceText(
   const page = pdf.getPage(pageIndex);
 
   // Generous padding for the white-out rect to cover bullets, glyphs, descenders
-  const pad = fontSize * 0.35;
+  const pad = fontSize * 0.15;
   page.drawRectangle({
     x: rect.x - pad,
     y: rect.y - pad,
@@ -366,6 +367,7 @@ async function eraseArea(
   pdfBytes: Uint8Array,
   pageIndex: number,
   rect: { x: number; y: number; width: number; height: number },
+  color?: { r: number; g: number; b: number },
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(pdfBytes);
   const page = pdf.getPage(pageIndex);
@@ -375,7 +377,11 @@ async function eraseArea(
     y: rect.y,
     width: rect.width,
     height: rect.height,
-    color: rgb(1, 1, 1),
+    color: rgb(
+      (color?.r ?? 255) / 255,
+      (color?.g ?? 255) / 255,
+      (color?.b ?? 255) / 255,
+    ),
     borderWidth: 0,
   });
 
@@ -623,9 +629,13 @@ async function bakeEdits(
           width: w,
           height: h,
           color,
+          fillColor,
           lineWidth,
         } = overlay as any; // Type workaround for SHAPE
-        const colorRgb = rgb(color.r, color.g, color.b);
+        const colorRgb = color ? rgb(color.r, color.g, color.b) : undefined;
+        const fillRgb = fillColor
+          ? rgb(fillColor.r, fillColor.g, fillColor.b)
+          : undefined;
         let path = "";
 
         if (shapeType === "rect") {
@@ -665,7 +675,7 @@ async function bakeEdits(
           page.drawSvgPath(path, {
             borderColor: colorRgb,
             borderWidth: lineWidth,
-            color: undefined,
+            color: fillRgb,
           });
         }
         break;
