@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import Canvas from "@/components/editor/Canvas";
 
 export default function EditorPage() {
   return (
@@ -23,11 +24,12 @@ export default function EditorPage() {
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden w-full relative">
+      {/* <main className="flex-1 flex overflow-hidden w-full relative">
         <div className="absolute inset-0 flex items-center justify-center text-slate-400">
           Editor Code Removed. Ready to start from scratch.
         </div>
-      </main>
+      </main> */}
+      <Canvas />
     </div>
   );
 }
