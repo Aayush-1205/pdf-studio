@@ -24,20 +24,30 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
   const store = useCanvasStore.getState();
   const { layerIds, layers, pdfBytes, pages } = store;
 
-  // Wait, if we don't have a background PDF, we need to generate a blank one to bake onto!
-  let basePdfBytes = pdfBytes;
+  // Assemble the base PDF accurately based on the current `store.pages`
+  // This gracefully handles blank page insertions and reordered original pages.
+  const outDoc = await PDFDocument.create();
+  const srcDoc = pdfBytes ? await PDFDocument.load(pdfBytes) : null;
 
-  if (!basePdfBytes) {
-    // Create a blank PDF on the main thread quickly if no document is loaded
-    const doc = await PDFDocument.create();
+  if (pages.length === 0) {
+    outDoc.addPage([800, 1131]);
+  } else {
     for (const p of pages) {
-      doc.addPage([p.width, p.height]);
+      if (
+        srcDoc &&
+        p.pdfPageIndex !== undefined &&
+        p.pdfPageIndex >= 0 &&
+        p.pdfPageIndex < srcDoc.getPageCount()
+      ) {
+        const [copiedPage] = await outDoc.copyPages(srcDoc, [p.pdfPageIndex]);
+        outDoc.addPage(copiedPage);
+      } else {
+        outDoc.addPage([p.width, p.height]);
+      }
     }
-    if (pages.length === 0) {
-      doc.addPage([800, 1131]);
-    }
-    basePdfBytes = await doc.save();
   }
+
+  const basePdfBytes = await outDoc.save();
 
   // Map local canvas layers to worker expectations
   const overlays: any[] = layerIds
@@ -52,12 +62,22 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
           y: layer.y,
           width: layer.width,
           height: layer.height,
-          color: normalizeColor(layer.fill),
+          fillColor:
+            layer.fill === "transparent"
+              ? undefined
+              : normalizeColor(layer.fill),
+          strokeColor:
+            layer.stroke === "transparent"
+              ? undefined
+              : normalizeColor(layer.stroke),
           opacity: (layer.opacity ?? 100) / 100,
         };
       }
 
       if (layer.type === "TEXT") {
+        if (layer.isOriginal && !layer.isEdited) {
+          return null; // Don't export original text that hasn't been touched, the base PDF already has it!
+        }
         return {
           type: "TEXT",
           pageIndex: layer.pageIndex,
@@ -67,10 +87,15 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
           fontFamily: layer.fontFamily || "Helvetica",
           fontSize: layer.fontSize || 16,
           color: normalizeColor(layer.fill),
+          // Background: use sampledBackgroundColor (what the user-set background is stored as)
+          // Fall back to stroke if explicitly set (and not transparent)
           bgColor:
-            layer.stroke !== "transparent"
-              ? normalizeColor(layer.stroke)
-              : undefined,
+            layer.sampledBackgroundColor &&
+            layer.sampledBackgroundColor !== "transparent"
+              ? normalizeColor(layer.sampledBackgroundColor)
+              : layer.stroke && layer.stroke !== "transparent"
+                ? normalizeColor(layer.stroke)
+                : undefined,
           width: layer.width,
           height: layer.height,
           alignment: layer.textAlign || "left",
@@ -79,6 +104,18 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
           isUnderline: layer.isUnderline,
           isStrikethrough: layer.isStrikethrough,
           lineHeight: layer.lineHeight,
+          isOriginal: layer.isOriginal,
+          originX: layer.originX,
+          originY: layer.originY,
+          originWidth: layer.originWidth,
+          originHeight: layer.originHeight,
+          // Pass sampledBackgroundColor separately for the original-text mask rectangle
+          sampledBackgroundColor:
+            layer.isOriginal &&
+            layer.sampledBackgroundColor &&
+            layer.sampledBackgroundColor !== "transparent"
+              ? normalizeColor(layer.sampledBackgroundColor)
+              : undefined,
         };
       }
 
@@ -160,6 +197,12 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
             imageType: isPng ? "png" : "jpg",
             imageBytes: bytes,
             opacity: (layer.opacity ?? 100) / 100,
+            // Advanced image features for flattening
+            filters: layer.filters,
+            crop: layer.crop,
+            cornerRadius: layer.cornerRadius,
+            originalWidth: layer.originalWidth,
+            originalHeight: layer.originalHeight,
           };
         } catch (e) {
           console.error("Failed to parse image for export");
@@ -190,7 +233,12 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
     worker.postMessage({
       id: messageId,
       method: "bakeEdits",
-      args: [basePdfBytes, overlays],
+      // Clone the array to guarantee no detachment side-effects crash subsequent exports
+      args: [
+        new Uint8Array(basePdfBytes),
+        overlays,
+        pages.map((p) => ({ pdfPageIndex: p.pdfPageIndex })),
+      ],
     });
   });
 };

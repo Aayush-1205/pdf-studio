@@ -4,7 +4,11 @@ import { useCanvasStore } from "../../store/useCanvasStore";
 import { useEffect, useRef } from "react";
 import { Transformer } from "react-konva";
 
-export default function SelectionBox({ selectedNodes }: { selectedNodes: any[] }) {
+export default function SelectionBox({
+  selectedNodes,
+}: {
+  selectedNodes: any[];
+}) {
   const trRef = useRef<any>(null);
 
   useEffect(() => {
@@ -41,43 +45,47 @@ export default function SelectionBox({ selectedNodes }: { selectedNodes: any[] }
       onTransformEnd={(e) => {
         const tr = trRef.current;
         if (!tr) return;
-        
+
         // Loop over selected nodes and flush their scaled width/height into store
-        selectedNodes.forEach(node => {
-           if (!node) return;
-           const newX = node.x();
-           const newY = node.y();
-           const scaleX = node.scaleX();
-           const scaleY = node.scaleY();
-           const rotation = node.rotation();
+        selectedNodes.forEach((node) => {
+          if (!node) return;
+          const newX = node.x();
+          const newY = node.y();
+          const scaleX = node.scaleX();
+          const scaleY = node.scaleY();
+          const rotation = node.rotation();
 
-           const id = node.attrs.id; // We inject id as attr
-           if (!id) return;
+          const id = node.attrs.id; // We inject id as attr
+          if (!id) return;
 
-           const layer = useCanvasStore.getState().layers[id];
-           if (!layer) return;
+          const layer = useCanvasStore.getState().layers[id];
+          if (!layer) return;
 
-           // Konva transforms usually preserve base width and apply scaling.
-           // We map this back to absolute width/height for our generic PDF export
-           // Fallback to layer bounds if Konva Group (like Text) returns 0 
-           const baseWidth = node.width() || layer.width;
-           const baseHeight = node.height() || layer.height;
+          // Konva transforms usually preserve base width and apply scaling.
+          // We map this back to absolute width/height for our generic PDF export
+          // Fallback to layer bounds if Konva Group (like Text) returns 0
+          const baseWidth = node.width() || layer.width;
+          const baseHeight = node.height() || layer.height;
 
-           // Calculate absolute page offset so we subtract it from the screen Y
-           const pageOffset = node.attrs.pageOffset || 0;
+          // Calculate absolute page offset so we subtract it from the screen Y
+          const pageOffset = node.attrs.pageOffset || 0;
 
-           // Flush back to store
-           useCanvasStore.getState().updateLayer(id, {
+          // Flush back to store (with history save for undo/redo support)
+          useCanvasStore.getState().updateLayer(
+            id,
+            {
               x: newX,
               y: newY - pageOffset,
               width: Math.max(1, baseWidth * scaleX),
               height: Math.max(1, baseHeight * scaleY),
-              rotation: rotation, // If rotation is added later
-           });
+              rotation: rotation,
+            },
+            true,
+          );
 
-           // Reset node scales so they don't compound on next render loop
-           node.scaleX(1);
-           node.scaleY(1);
+          // Reset node scales so they don't compound on next render loop
+          node.scaleX(1);
+          node.scaleY(1);
         });
       }}
     />

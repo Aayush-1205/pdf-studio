@@ -113,6 +113,11 @@ export async function extractPdfPages(
         textAlign: "left",
         lineHeight: 1.2,
         sampledBackgroundColor: sampledColor,
+        isOriginal: true,
+        originX: x,
+        originY: y,
+        originWidth: Math.max(width, 50),
+        originHeight: fontSize * 1.5,
       });
     }
   }

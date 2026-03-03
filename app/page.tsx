@@ -4,7 +4,6 @@ import { Navbar } from "@/components/shared/Navbar";
 import { ToolCard } from "@/components/shared/ToolCard";
 import {
   FileText,
-  Merge,
   FileDown,
   RotateCw,
   FilePlus,
@@ -23,15 +22,6 @@ const tools = [
     href: "/edit",
     color: "from-indigo-500",
     colorTo: "to-violet-500",
-  },
-  {
-    icon: Merge,
-    title: "Merge PDFs",
-    description:
-      "Combine multiple PDF files into a single document in seconds.",
-    href: "/merge",
-    color: "from-blue-500",
-    colorTo: "to-cyan-500",
   },
   {
     icon: FileDown,

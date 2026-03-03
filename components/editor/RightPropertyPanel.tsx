@@ -14,7 +14,7 @@ import {
   Bold,
   Italic,
   Underline,
-  Strikethrough
+  Strikethrough,
 } from "lucide-react";
 import {
   Select,
@@ -25,11 +25,29 @@ import {
 } from "@/components/ui/select";
 
 const GOOGLE_FONTS = [
-  "Arial", "Courier New", "Georgia", "Times New Roman", "Verdana",
-  "Roboto", "Open Sans", "Lato", "Montserrat", "Oswald",
-  "Source Sans Pro", "Slabo 27px", "Raleway", "PT Sans", "Merriweather",
-  "Nunito", "Playfair Display", "Rubik", "Lora", "Work Sans", 
-  "Inter", "Poppins", "Ubuntu"
+  "Arial",
+  "Courier New",
+  "Georgia",
+  "Times New Roman",
+  "Verdana",
+  "Roboto",
+  "Open Sans",
+  "Lato",
+  "Montserrat",
+  "Oswald",
+  "Source Sans Pro",
+  "Slabo 27px",
+  "Raleway",
+  "PT Sans",
+  "Merriweather",
+  "Nunito",
+  "Playfair Display",
+  "Rubik",
+  "Lora",
+  "Work Sans",
+  "Inter",
+  "Poppins",
+  "Ubuntu",
 ];
 
 export default function RightPropertyPanel() {
@@ -97,7 +115,7 @@ export default function RightPropertyPanel() {
       activeLayer.type,
       activeLayer.pageIndex,
       { x: activeLayer.x + 20, y: activeLayer.y + 20 },
-      activeLayer
+      activeLayer,
     );
   };
 
@@ -149,7 +167,9 @@ export default function RightPropertyPanel() {
           </h4>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex items-center bg-gray-50 rounded-lg p-1 border border-gray-100 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-100 transition-all">
-              <label className="text-xs text-gray-400 font-medium w-6 text-center">X</label>
+              <label className="text-xs text-gray-400 font-medium w-6 text-center">
+                X
+              </label>
               <input
                 type="number"
                 value={Math.round(activeLayer.x)}
@@ -158,7 +178,9 @@ export default function RightPropertyPanel() {
               />
             </div>
             <div className="flex items-center bg-gray-50 rounded-lg p-1 border border-gray-100 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-100 transition-all">
-              <label className="text-xs text-gray-400 font-medium w-6 text-center">Y</label>
+              <label className="text-xs text-gray-400 font-medium w-6 text-center">
+                Y
+              </label>
               <input
                 type="number"
                 value={Math.round(activeLayer.y)}
@@ -169,20 +191,28 @@ export default function RightPropertyPanel() {
             {activeLayer.type !== "PATH" && (
               <>
                 <div className="flex items-center bg-gray-50 rounded-lg p-1 border border-gray-100 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-100 transition-all">
-                  <label className="text-xs text-gray-400 font-medium w-6 text-center">W</label>
+                  <label className="text-xs text-gray-400 font-medium w-6 text-center">
+                    W
+                  </label>
                   <input
                     type="number"
                     value={Math.round(activeLayer.width)}
-                    onChange={(e) => handleChange("width", Number(e.target.value))}
+                    onChange={(e) =>
+                      handleChange("width", Number(e.target.value))
+                    }
                     className="w-full bg-transparent text-gray-700 focus:outline-none text-xs"
                   />
                 </div>
                 <div className="flex items-center bg-gray-50 rounded-lg p-1 border border-gray-100 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-100 transition-all">
-                  <label className="text-xs text-gray-400 font-medium w-6 text-center">H</label>
+                  <label className="text-xs text-gray-400 font-medium w-6 text-center">
+                    H
+                  </label>
                   <input
                     type="number"
                     value={Math.round(activeLayer.height)}
-                    onChange={(e) => handleChange("height", Number(e.target.value))}
+                    onChange={(e) =>
+                      handleChange("height", Number(e.target.value))
+                    }
                     className="w-full bg-transparent text-gray-700 focus:outline-none text-xs"
                   />
                 </div>
@@ -198,15 +228,60 @@ export default function RightPropertyPanel() {
               Typography
             </h4>
             <div className="flex flex-col gap-3">
+              {/* Fit to Content button — measures actual text bounds and resizes selection box */}
+              <button
+                className="w-full flex items-center justify-center gap-2 py-1.5 px-3 text-[11px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+                onClick={() => {
+                  const text = activeLayer.text || "";
+                  const fontSize = activeLayer.fontSize || 16;
+                  const fontFamily = activeLayer.fontFamily || "sans-serif";
+                  const lineHeight = activeLayer.lineHeight || 1.2;
+                  const isBold = activeLayer.isBold;
+                  const isItalic = activeLayer.isItalic;
+                  const words = text.split(/\s+/).filter(Boolean);
+                  const maxW = activeLayer.width || 300;
+
+                  // Measure text on a canvas
+                  const canvas = document.createElement("canvas");
+                  const ctx = canvas.getContext("2d");
+                  if (!ctx) return;
+                  ctx.font = `${isItalic ? "italic " : ""}${isBold ? "bold " : ""}${fontSize}px ${fontFamily}`;
+
+                  const textLines = text.split("\n");
+                  let widestLine = 50; // Minimum width
+                  for (const l of textLines) {
+                    const w = ctx.measureText(l).width;
+                    if (w > widestLine) widestLine = w;
+                  }
+
+                  const totalHeight = Math.ceil(
+                    textLines.length * fontSize * lineHeight + fontSize * 0.3,
+                  );
+
+                  updateLayer(activeId, {
+                    width: widestLine + 8, // slight padding
+                    height: Math.max(totalHeight, fontSize * lineHeight),
+                  });
+                }}
+              >
+                ↔ Fit to Content
+              </button>
               {/* Font Selector via Shadcn */}
               <div className="w-full">
-                <Select value={activeLayer.fontFamily || "Inter"} onValueChange={(val) => handleChange("fontFamily", val)}>
+                <Select
+                  value={activeLayer.fontFamily || "Inter"}
+                  onValueChange={(val) => handleChange("fontFamily", val)}
+                >
                   <SelectTrigger className="w-full h-8 text-xs bg-gray-50 border-gray-100 hover:border-blue-400">
                     <SelectValue placeholder="Select Font" />
                   </SelectTrigger>
                   <SelectContent className="max-h-[250px]">
-                    {GOOGLE_FONTS.map(font => (
-                      <SelectItem key={font} value={font} style={{ fontFamily: font }}>
+                    {GOOGLE_FONTS.map((font) => (
+                      <SelectItem
+                        key={font}
+                        value={font}
+                        style={{ fontFamily: font }}
+                      >
                         {font}
                       </SelectItem>
                     ))}
@@ -223,19 +298,28 @@ export default function RightPropertyPanel() {
                   <Bold size={14} />
                 </button>
                 <button
-                  onClick={() => handleChange("isItalic", !activeLayer.isItalic)}
+                  onClick={() =>
+                    handleChange("isItalic", !activeLayer.isItalic)
+                  }
                   className={`flex-1 p-1.5 flex justify-center hover:bg-gray-100 transition-colors ${activeLayer.isItalic ? "bg-gray-200 text-gray-900" : "text-gray-400"}`}
                 >
                   <Italic size={14} />
                 </button>
                 <button
-                  onClick={() => handleChange("isUnderline", !activeLayer.isUnderline)}
+                  onClick={() =>
+                    handleChange("isUnderline", !activeLayer.isUnderline)
+                  }
                   className={`flex-1 p-1.5 flex justify-center hover:bg-gray-100 transition-colors ${activeLayer.isUnderline ? "bg-gray-200 text-gray-900" : "text-gray-400"}`}
                 >
                   <Underline size={14} />
                 </button>
                 <button
-                  onClick={() => handleChange("isStrikethrough", !activeLayer.isStrikethrough)}
+                  onClick={() =>
+                    handleChange(
+                      "isStrikethrough",
+                      !activeLayer.isStrikethrough,
+                    )
+                  }
                   className={`flex-1 p-1.5 flex justify-center hover:bg-gray-100 transition-colors ${activeLayer.isStrikethrough ? "bg-gray-200 text-gray-900" : "text-gray-400"}`}
                 >
                   <Strikethrough size={14} />
@@ -261,31 +345,43 @@ export default function RightPropertyPanel() {
               {/* Metrics Grid */}
               <div className="grid grid-cols-3 gap-2 mt-1">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[9px] text-gray-400 font-medium px-1 text-center">Pt Size</label>
+                  <label className="text-[9px] text-gray-400 font-medium px-1 text-center">
+                    Pt Size
+                  </label>
                   <input
                     type="number"
                     value={activeLayer.fontSize || 16}
-                    onChange={(e) => handleChange("fontSize", Number(e.target.value))}
+                    onChange={(e) =>
+                      handleChange("fontSize", Number(e.target.value))
+                    }
                     className="w-full bg-gray-50 rounded p-1 border border-gray-100 focus:border-blue-400 focus:outline-none text-xs text-center text-gray-700"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[9px] text-gray-400 font-medium px-1 text-center">Line Height</label>
+                  <label className="text-[9px] text-gray-400 font-medium px-1 text-center">
+                    Line Height
+                  </label>
                   <input
                     type="number"
                     step="0.1"
                     value={activeLayer.lineHeight || 1.2}
-                    onChange={(e) => handleChange("lineHeight", Number(e.target.value))}
+                    onChange={(e) =>
+                      handleChange("lineHeight", Number(e.target.value))
+                    }
                     className="w-full bg-gray-50 rounded p-1 border border-gray-100 focus:border-blue-400 focus:outline-none text-xs text-center text-gray-700"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[9px] text-gray-400 font-medium px-1 text-center">Spacing</label>
+                  <label className="text-[9px] text-gray-400 font-medium px-1 text-center">
+                    Spacing
+                  </label>
                   <input
                     type="number"
                     step="0.5"
                     value={activeLayer.letterSpacing || 0}
-                    onChange={(e) => handleChange("letterSpacing", Number(e.target.value))}
+                    onChange={(e) =>
+                      handleChange("letterSpacing", Number(e.target.value))
+                    }
                     className="w-full bg-gray-50 rounded p-1 border border-gray-100 focus:border-blue-400 focus:outline-none text-xs text-center text-gray-700"
                   />
                 </div>
@@ -365,7 +461,7 @@ export default function RightPropertyPanel() {
             </div>
           </section>
         )}
-        
+
         {/* Background Color Mask for Text */}
         {activeLayer.type === "TEXT" && (
           <section className="pt-2 border-t">
@@ -377,39 +473,274 @@ export default function RightPropertyPanel() {
                 <input
                   type="color"
                   value={
-                    activeLayer.sampledBackgroundColor && activeLayer.sampledBackgroundColor !== "transparent"
+                    activeLayer.sampledBackgroundColor &&
+                    activeLayer.sampledBackgroundColor !== "transparent"
                       ? activeLayer.sampledBackgroundColor
                       : "#ffffff"
                   }
-                  onChange={(e) => handleChange("sampledBackgroundColor", e.target.value)}
+                  onChange={(e) =>
+                    handleChange("sampledBackgroundColor", e.target.value)
+                  }
                   className="absolute inset-[-10px] w-12 h-12 cursor-pointer opacity-0"
-                  style={{ opacity: (!activeLayer.sampledBackgroundColor || activeLayer.sampledBackgroundColor === "transparent") ? 0 : 1 }}
+                  style={{
+                    opacity:
+                      !activeLayer.sampledBackgroundColor ||
+                      activeLayer.sampledBackgroundColor === "transparent"
+                        ? 0
+                        : 1,
+                  }}
                 />
-                {(!activeLayer.sampledBackgroundColor || activeLayer.sampledBackgroundColor === "transparent") && (
-                  <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center text-red-500">✕</div>
+                {(!activeLayer.sampledBackgroundColor ||
+                  activeLayer.sampledBackgroundColor === "transparent") && (
+                  <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center text-red-500">
+                    ✕
+                  </div>
                 )}
               </div>
               <input
                 type="text"
-                value={(!activeLayer.sampledBackgroundColor || activeLayer.sampledBackgroundColor === "transparent") ? "None" : activeLayer.sampledBackgroundColor}
-                onChange={(e) => handleChange("sampledBackgroundColor", e.target.value)}
+                value={
+                  !activeLayer.sampledBackgroundColor ||
+                  activeLayer.sampledBackgroundColor === "transparent"
+                    ? "None"
+                    : activeLayer.sampledBackgroundColor
+                }
+                onChange={(e) =>
+                  handleChange("sampledBackgroundColor", e.target.value)
+                }
                 className="w-full bg-gray-50 border border-gray-100 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 rounded-lg px-3 py-1.5 focus:outline-none font-mono text-[11px] uppercase"
               />
               <button
                 title="Remove mask"
-                onClick={() => handleChange("sampledBackgroundColor", "transparent")}
-                className={`p-1.5 rounded-lg border ${(!activeLayer.sampledBackgroundColor || activeLayer.sampledBackgroundColor === "transparent") ? "border-blue-500 text-blue-500 bg-blue-50" : "border-gray-200 text-gray-400 hover:bg-gray-50"}`}
+                onClick={() =>
+                  handleChange("sampledBackgroundColor", "transparent")
+                }
+                className={`p-1.5 rounded-lg border ${!activeLayer.sampledBackgroundColor || activeLayer.sampledBackgroundColor === "transparent" ? "border-blue-500 text-blue-500 bg-blue-50" : "border-gray-200 text-gray-400 hover:bg-gray-50"}`}
               >
                 ✕
               </button>
             </div>
             <p className="text-[9px] text-gray-400 mt-2 leading-tight">
-              A solid color drawn exactly behind the text to mask original PDF artifacts.
+              A solid color drawn exactly behind the text to mask original PDF
+              artifacts.
             </p>
           </section>
         )}
 
-        {/* Opacity */}
+        {/* ── Image Adjustments ── */}
+        {activeLayer.type === "IMAGE" && (
+          <section className="pt-2 border-t">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[10px] font-bold tracking-wider text-gray-400 uppercase">
+                Image Adjustments
+              </h4>
+              <button
+                className="text-[9px] text-blue-500 hover:text-blue-700 font-medium"
+                onClick={() =>
+                  updateLayer(activeId, {
+                    filters: undefined,
+                    cornerRadius: 0,
+                    shadow: undefined,
+                  })
+                }
+              >
+                Reset All
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              {/* Brightness */}
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-[10px] text-gray-500">Brightness</span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {activeLayer.filters?.brightness || 0}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={activeLayer.filters?.brightness || 0}
+                  onChange={(e) =>
+                    updateLayer(activeId, {
+                      filters: {
+                        ...activeLayer.filters,
+                        brightness: Number(e.target.value),
+                      },
+                    })
+                  }
+                  className="w-full accent-blue-500 cursor-pointer h-1"
+                />
+              </div>
+              {/* Contrast */}
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-[10px] text-gray-500">Contrast</span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {activeLayer.filters?.contrast || 0}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={activeLayer.filters?.contrast || 0}
+                  onChange={(e) =>
+                    updateLayer(activeId, {
+                      filters: {
+                        ...activeLayer.filters,
+                        contrast: Number(e.target.value),
+                      },
+                    })
+                  }
+                  className="w-full accent-blue-500 cursor-pointer h-1"
+                />
+              </div>
+              {/* Blur */}
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-[10px] text-gray-500">Blur</span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {activeLayer.filters?.blurRadius || 0}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="40"
+                  value={activeLayer.filters?.blurRadius || 0}
+                  onChange={(e) =>
+                    updateLayer(activeId, {
+                      filters: {
+                        ...activeLayer.filters,
+                        blurRadius: Number(e.target.value),
+                      },
+                    })
+                  }
+                  className="w-full accent-blue-500 cursor-pointer h-1"
+                />
+              </div>
+              {/* Saturation */}
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-[10px] text-gray-500">Saturation</span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {activeLayer.filters?.saturate ?? 100}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={activeLayer.filters?.saturate ?? 100}
+                  onChange={(e) =>
+                    updateLayer(activeId, {
+                      filters: {
+                        ...activeLayer.filters,
+                        saturate: Number(e.target.value),
+                      },
+                    })
+                  }
+                  className="w-full accent-blue-500 cursor-pointer h-1"
+                />
+              </div>
+              {/* Corner Radius */}
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-[10px] text-gray-500">
+                    Corner Radius
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {activeLayer.cornerRadius || 0}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={activeLayer.cornerRadius || 0}
+                  onChange={(e) =>
+                    updateLayer(activeId, {
+                      cornerRadius: Number(e.target.value),
+                    })
+                  }
+                  className="w-full accent-blue-500 cursor-pointer h-1"
+                />
+              </div>
+              {/* Shadow Blur */}
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-[10px] text-gray-500">Shadow</span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {activeLayer.shadow?.blur || 0}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="50"
+                  value={activeLayer.shadow?.blur || 0}
+                  onChange={(e) => {
+                    const blur = Number(e.target.value);
+                    updateLayer(activeId, {
+                      shadow:
+                        blur > 0
+                          ? {
+                              ...(activeLayer.shadow || {}),
+                              blur,
+                              color:
+                                activeLayer.shadow?.color || "rgba(0,0,0,0.3)",
+                              offsetX: activeLayer.shadow?.offsetX ?? 4,
+                              offsetY: activeLayer.shadow?.offsetY ?? 4,
+                            }
+                          : undefined,
+                    });
+                  }}
+                  className="w-full accent-blue-500 cursor-pointer h-1"
+                />
+              </div>
+              {/* Toggle Switches Row */}
+              <div className="flex flex-wrap gap-2 mt-1">
+                {[
+                  {
+                    key: "grayscale",
+                    label: "B&W",
+                    active: activeLayer.filters?.grayscale,
+                  },
+                  {
+                    key: "sepia",
+                    label: "Sepia",
+                    active: activeLayer.filters?.sepia,
+                  },
+                  {
+                    key: "invert",
+                    label: "Invert",
+                    active: activeLayer.filters?.invert,
+                  },
+                ].map((toggle) => (
+                  <button
+                    key={toggle.key}
+                    onClick={() =>
+                      updateLayer(activeId, {
+                        filters: {
+                          ...activeLayer.filters,
+                          [toggle.key]: !toggle.active,
+                        },
+                      })
+                    }
+                    className={`px-3 py-1 rounded-full text-[10px] font-medium border transition-all ${
+                      toggle.active
+                        ? "bg-blue-500 text-white border-blue-500 shadow-sm"
+                        : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"
+                    }`}
+                  >
+                    {toggle.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
         <section className="pt-2 border-t mt-auto">
           <h4 className="text-[10px] font-bold tracking-wider text-gray-400 uppercase mb-3 text-red">
             Opacity

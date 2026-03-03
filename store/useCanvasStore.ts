@@ -15,7 +15,7 @@ export type LayerType =
 
 export type Page = {
   id: string; // Unique id for the page
-  pdfPageIndex: number; // 0-based index in the raw PDF (if imported)
+  pdfPageIndex?: number; // 0-based index in the raw PDF (undefined if it's a blank page)
   width: number;
   height: number;
   backgroundUrl?: string; // High-res rasterized blob URL of the page
@@ -46,9 +46,48 @@ export type Layer = {
   isStrikethrough?: boolean;
   sampledBackgroundColor?: string; // For the context-aware mask
 
+  // Extracted PDF text origin tracking to prevent ghosting/double-rendering
+  isOriginal?: boolean;
+  isEdited?: boolean;
+  originX?: number;
+  originY?: number;
+  originWidth?: number;
+  originHeight?: number;
+
   rotation?: number; // Added to support Transformer rotation bounds natively
 
-  src?: string; // For Image Layer
+  // ── Image Layer Specifics ──
+  src?: string; // Base64 Data URL or Blob URL of the ORIGINAL image
+  originalWidth?: number; // Unmodified source image width
+  originalHeight?: number; // Unmodified source image height
+
+  // Non-destructive cropping (relative to original image dimensions)
+  crop?: { x: number; y: number; width: number; height: number };
+
+  // CSS-style filters (non-destructive, flattened only at export time)
+  filters?: {
+    brightness?: number; // -100 to 100 (maps to 0-2 multiplier)
+    contrast?: number; // -100 to 100
+    blurRadius?: number; // 0 to 40px
+    grayscale?: boolean;
+    saturate?: number; // 0 to 200 (100 = normal)
+    hueRotate?: number; // 0 to 360 degrees
+    sepia?: boolean;
+    invert?: boolean;
+  };
+
+  // Rounded corners (Konva `cornerRadius`)
+  cornerRadius?: number;
+
+  // Drop shadow for images
+  shadow?: {
+    color?: string;
+    blur?: number;
+    offsetX?: number;
+    offsetY?: number;
+  };
+
+  isNative?: boolean; // Flag if extracted from the original PDF
 };
 
 export enum CanvasMode {
@@ -59,6 +98,12 @@ export enum CanvasMode {
   Pencil, // Freehand drawing
   SelectionNet, // Dragging a multi-select box
 }
+
+export type HistorySnapshot = {
+  layers: Record<string, Layer>;
+  layerIds: string[];
+  pages: Page[];
+};
 
 type CanvasState = {
   // Config
@@ -71,7 +116,10 @@ type CanvasState = {
   layers: Record<string, Layer>; // The actual data
   layerIds: string[]; // Z-Index order (bottom to top)
   selection: string[]; // Currently selected layer IDs
+  hoveredLayerId: string | null; // Id of layer currently hovered by mouse
+  isAltPressed: boolean; // Alt/Option key tracker for Figma-like measurements
   pencilDraft: number[][] | null; // Intermediate drawing state
+  pencilPageIndex: number; // Page being drawn on
 
   // Dragging State
   dragOffset: Point | null; // Offset from mouse to shape top-left when dragging starts
@@ -90,7 +138,12 @@ type CanvasState = {
   // Actions
   setPdfBytes: (bytes: Uint8Array | null) => void;
   setPages: (pages: Page[]) => void;
-  addBlankPage: (width: number, height: number, groupName?: string) => void;
+  addBlankPage: (
+    width: number,
+    height: number,
+    groupName?: string,
+    insertIndex?: number,
+  ) => void;
   reorderPages: (oldIndex: number, newIndex: number) => void;
   deletePage: (pageIndex: number) => void;
 
@@ -103,10 +156,23 @@ type CanvasState = {
     point: Point,
     initialValues?: Partial<Layer>,
   ) => void;
-  updateLayer: (id: string, data: Partial<Layer>) => void;
+  updateLayer: (
+    id: string,
+    data: Partial<Layer>,
+    saveHistoryAction?: boolean,
+  ) => void;
   setSelection: (ids: string[]) => void;
+  setHoveredLayerId: (id: string | null) => void;
+  setAltPressed: (pressed: boolean) => void;
   deleteLayers: () => void;
   clearCanvas: () => void; // Reset entire workspace
+
+  // History Actions
+  past: HistorySnapshot[];
+  future: HistorySnapshot[];
+  saveHistory: () => void;
+  undo: () => void;
+  redo: () => void;
 
   // Interaction Actions
   startTranslating: (point: Point) => void;
@@ -134,28 +200,113 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   layers: {},
   layerIds: [],
   selection: [],
+  hoveredLayerId: null,
+  isAltPressed: false,
   pencilDraft: null,
+  pencilPageIndex: 0,
   dragOffset: null,
   guides: [],
   resizeHandle: null,
   resizeInitialBounds: null,
   resizeInitialPoint: null,
 
-  setPdfBytes: (bytes) => set({ pdfBytes: bytes }),
-  setPages: (pages) => set({ pages }),
-  addBlankPage: (width, height, groupName) =>
+  past: [],
+  future: [],
+
+  saveHistory: () =>
     set((state) => {
+      const MAX_HISTORY = 30;
+      const snapshot: HistorySnapshot = {
+        layers: JSON.parse(JSON.stringify(state.layers)),
+        layerIds: [...state.layerIds],
+        pages: [...state.pages],
+      };
+      const newPast = [...state.past, snapshot].slice(-MAX_HISTORY);
+      return { past: newPast, future: [] };
+    }),
+
+  undo: () =>
+    set((state) => {
+      if (state.past.length === 0) return state;
+      const previous = state.past[state.past.length - 1];
+      const newPast = state.past.slice(0, -1);
+      const current: HistorySnapshot = {
+        layers: JSON.parse(JSON.stringify(state.layers)),
+        layerIds: [...state.layerIds],
+        pages: [...state.pages],
+      };
+      return {
+        past: newPast,
+        future: [current, ...state.future],
+        layers: previous.layers,
+        layerIds: previous.layerIds,
+        pages: previous.pages,
+        selection: [],
+      };
+    }),
+
+  redo: () =>
+    set((state) => {
+      if (state.future.length === 0) return state;
+      const next = state.future[0];
+      const newFuture = state.future.slice(1);
+      const current: HistorySnapshot = {
+        layers: JSON.parse(JSON.stringify(state.layers)),
+        layerIds: [...state.layerIds],
+        pages: [...state.pages],
+      };
+      return {
+        past: [...state.past, current],
+        future: newFuture,
+        layers: next.layers,
+        layerIds: next.layerIds,
+        pages: next.pages,
+        selection: [],
+      };
+    }),
+
+  setPdfBytes: (bytes) => set({ pdfBytes: bytes }),
+  setPages: (pages) =>
+    set((state) => {
+      get().saveHistory();
+      return { pages };
+    }),
+  addBlankPage: (width, height, groupName, insertIndex) =>
+    set((state) => {
+      get().saveHistory();
       const newPage: Page = {
         id: nanoid(),
-        pdfPageIndex: state.pages.length,
         width,
         height,
-        groupName: groupName || "Custom",
+        groupName: groupName || "Blank Page",
       };
-      return { pages: [...state.pages, newPage] };
+
+      const newPages = [...state.pages];
+      if (
+        insertIndex !== undefined &&
+        insertIndex >= 0 &&
+        insertIndex <= newPages.length
+      ) {
+        newPages.splice(insertIndex, 0, newPage);
+      } else {
+        newPages.push(newPage);
+      }
+
+      // We also need to push layer pageIndexes down if we insert a page in the middle!
+      const newLayers = { ...state.layers };
+      if (insertIndex !== undefined && insertIndex < state.pages.length) {
+        Object.keys(newLayers).forEach((id) => {
+          if (newLayers[id].pageIndex >= insertIndex) {
+            newLayers[id].pageIndex += 1;
+          }
+        });
+      }
+
+      return { pages: newPages, layers: newLayers };
     }),
   reorderPages: (oldIndex, newIndex) =>
     set((state) => {
+      get().saveHistory();
       const newPages = [...state.pages];
       const [moved] = newPages.splice(oldIndex, 1);
       newPages.splice(newIndex, 0, moved);
@@ -163,6 +314,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }),
   deletePage: (pageIndex) =>
     set((state) => {
+      get().saveHistory();
       // Also delete any layers on this page
       const layersToDelete = Object.entries(state.layers)
         .filter(([_, l]) => l.pageIndex === pageIndex)
@@ -194,19 +346,25 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }),
 
   clearCanvas: () =>
-    set({
-      pdfBytes: null,
-      pages: [],
-      layers: {},
-      layerIds: [],
-      selection: [],
-      camera: { x: 0, y: 0, zoom: 1 },
+    set((state) => {
+      get().saveHistory();
+      return {
+        pdfBytes: null,
+        pages: [],
+        layers: {},
+        layerIds: [],
+        selection: [],
+        past: [],
+        future: [],
+        camera: { x: 0, y: 0, zoom: 1 },
+      };
     }),
 
   setCamera: (camera) => set({ camera }),
   setMode: (mode, layerType) => set({ mode, layerType }),
 
   insertLayer: (type, pageIndex, point, initialValues = {}) => {
+    get().saveHistory();
     const id = nanoid();
     const newLayer: Layer = {
       type,
@@ -234,18 +392,45 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }));
   },
 
-  updateLayer: (id, data) =>
-    set((state) => ({
-      layers: {
-        ...state.layers,
-        [id]: { ...state.layers[id], ...data },
-      },
-    })),
+  updateLayer: (id, data, saveHistoryAction) =>
+    set((state) => {
+      if (saveHistoryAction) {
+        get().saveHistory();
+      }
+
+      const layer = state.layers[id];
+      if (!layer) return state;
+      const newLayer = { ...layer, ...data };
+
+      // Auto-flag original extracted layers as edited if they are mutated
+      if (layer.isOriginal && layer.type === "TEXT") {
+        const isMovedOrResized =
+          data.x !== undefined ||
+          data.y !== undefined ||
+          data.text !== undefined ||
+          data.fontSize !== undefined ||
+          data.width !== undefined;
+
+        if (isMovedOrResized) {
+          newLayer.isEdited = true;
+        }
+      }
+
+      return {
+        layers: {
+          ...state.layers,
+          [id]: newLayer,
+        },
+      };
+    }),
 
   setSelection: (ids) => set({ selection: ids }),
+  setHoveredLayerId: (id) => set({ hoveredLayerId: id }),
+  setAltPressed: (pressed) => set({ isAltPressed: pressed }),
 
   deleteLayers: () =>
     set((state) => {
+      get().saveHistory();
       const newLayers = { ...state.layers };
       state.selection.forEach((id) => delete newLayers[id]);
       return {
@@ -425,7 +610,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   // --- Drawing Logic ---
   startDrawing: (point, pageIndex) => {
-    set({ pencilDraft: [[point.x, point.y]], mode: CanvasMode.Pencil });
+    set({
+      pencilDraft: [[point.x, point.y]],
+      pencilPageIndex: pageIndex,
+      mode: CanvasMode.Pencil,
+    });
   },
 
   continueDrawing: (point) =>

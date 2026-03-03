@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { UploadToDriveModal } from "../pdf/UploadToDriveModal";
+import { MergePDFModal } from "../pdf/MergePDFModal";
 import {
   fetchDriveItems,
   downloadDrivePdf,
@@ -30,9 +31,20 @@ interface BreadcrumbItem {
 }
 
 export default function LeftSidebar() {
-  const { pages: pagesList, layers, layerIds, selection, setSelection, deleteLayers } = useCanvasStore();
-  const [activeTab, setActiveTab] = useState<"drive" | "pages" | "layers">("drive");
+  const {
+    pages: pagesList,
+    layers,
+    layerIds,
+    selection,
+    setSelection,
+    deleteLayers,
+  } = useCanvasStore();
+  const [activeTab, setActiveTab] = useState<"drive" | "pages" | "layers">(
+    "drive",
+  );
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [insertIndex, setInsertIndex] = useState<number | "end">("end");
 
   // Drive API State
   const [items, setItems] = useState<DriveItem[]>([]);
@@ -96,7 +108,12 @@ export default function LeftSidebar() {
 
       try {
         const { extractPdfPages } = await import("@/app/lib/pdfRender");
-        const { pages, layers } = await extractPdfPages(array, file.name);
+        // We MUST pass a cloned Uint8Array here. pdfjs-dist often transfers the buffer to its worker,
+        // effectively detaching it from the main thread and crashing future exports!
+        const { pages, layers } = await extractPdfPages(
+          new Uint8Array(array),
+          file.name,
+        );
 
         store.setPages(pages);
 
@@ -176,6 +193,13 @@ export default function LeftSidebar() {
             Layers
           </button>
         </div>
+
+        {isMergeModalOpen && (
+          <MergePDFModal
+            isOpen={isMergeModalOpen}
+            onClose={() => setIsMergeModalOpen(false)}
+          />
+        )}
 
         <div className="p-4 flex-1 overflow-y-auto custom-scrollbar flex flex-col">
           {activeTab === "drive" && (
@@ -362,12 +386,41 @@ export default function LeftSidebar() {
               <h4 className="text-[10px] font-bold tracking-wider text-gray-400 uppercase mb-3 flex items-center gap-2 mt-4 pt-4 border-t">
                 <LayoutTemplate size={12} /> Add Blank Frame
               </h4>
+              <div className="flex items-center gap-2 mb-3 bg-white border border-gray-200 p-1.5 rounded-lg">
+                <span className="text-[10px] text-gray-500 font-medium whitespace-nowrap pl-1">
+                  Insert Position:
+                </span>
+                <select
+                  className="flex-1 text-xs p-1 bg-transparent border-none outline-none cursor-pointer focus:ring-0 text-gray-700 w-full font-medium"
+                  value={insertIndex.toString()}
+                  onChange={(e) =>
+                    setInsertIndex(
+                      e.target.value === "end" ? "end" : Number(e.target.value),
+                    )
+                  }
+                >
+                  <option value="end">At End of Document</option>
+                  <option value="0">At Beginning</option>
+                  {pagesList.map((p, i) => (
+                    <option key={p.id} value={i + 1}>
+                      After Page {i + 1}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {pagePresets.map((p) => (
                   <button
                     key={p.name}
                     onClick={() => {
-                      useCanvasStore.getState().addBlankPage(p.width, p.height);
+                      useCanvasStore
+                        .getState()
+                        .addBlankPage(
+                          p.width,
+                          p.height,
+                          p.name,
+                          insertIndex === "end" ? undefined : insertIndex,
+                        );
                     }}
                     className="flex flex-col items-center justify-center p-3 border border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors text-center gap-1"
                   >
@@ -410,12 +463,32 @@ export default function LeftSidebar() {
                         .value,
                     );
                     if (w && h) {
-                      useCanvasStore.getState().addBlankPage(w, h);
+                      useCanvasStore
+                        .getState()
+                        .addBlankPage(
+                          w,
+                          h,
+                          "Custom",
+                          insertIndex === "end" ? undefined : insertIndex,
+                        );
                     }
                   }}
                 >
                   Create Custom Canvas
                 </button>
+
+                <div className="mt-4 pt-4 border-t">
+                  <h4 className="text-[10px] font-bold tracking-wider text-gray-400 uppercase mb-3">
+                    Merge Tools
+                  </h4>
+                  <button
+                    className="w-full flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 p-2.5 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors shadow-sm"
+                    onClick={() => setIsMergeModalOpen(true)}
+                  >
+                    <Layers size={16} />
+                    Merge Multiple PDFs
+                  </button>
+                </div>
 
                 <div className="mt-4 pt-4 border-t border-red-100">
                   <button

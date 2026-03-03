@@ -21,6 +21,12 @@ interface BakeTextOverlay {
   width: number;
   height: number;
   lineHeight?: number;
+  isOriginal?: boolean;
+  originX?: number;
+  originY?: number;
+  originWidth?: number;
+  originHeight?: number;
+  sampledBackgroundColor?: { r: number; g: number; b: number };
 }
 
 interface BakeImageOverlay {
@@ -32,8 +38,23 @@ interface BakeImageOverlay {
   height: number;
   imageBytes: Uint8Array;
   imageType: "png" | "jpg";
-  rotation?: number; // degrees
+  rotation?: number;
   opacity?: number;
+  // Advanced image features
+  filters?: {
+    brightness?: number;
+    contrast?: number;
+    blurRadius?: number;
+    grayscale?: boolean;
+    saturate?: number;
+    hueRotate?: number;
+    sepia?: boolean;
+    invert?: boolean;
+  };
+  crop?: { x: number; y: number; width: number; height: number };
+  cornerRadius?: number;
+  originalWidth?: number;
+  originalHeight?: number;
 }
 
 interface BakeRectangleOverlay {
@@ -43,7 +64,9 @@ interface BakeRectangleOverlay {
   y: number;
   width: number;
   height: number;
-  color: { r: number; g: number; b: number };
+  fillColor?: { r: number; g: number; b: number };
+  strokeColor?: { r: number; g: number; b: number };
+  lineWidth?: number;
   opacity: number;
 }
 
@@ -258,7 +281,7 @@ async function drawFormattedText(
   for (let i = 0; i < words.length; i++) {
     const testLine = currentLine ? currentLine + " " + words[i] : words[i];
     const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-    
+
     if (testWidth > width && i > 0) {
       lines.push(currentLine);
       currentLine = words[i];
@@ -274,16 +297,19 @@ async function drawFormattedText(
   let currentY = y; // Starts at baseline for first line
   const textColor = rgb(color.r, color.g, color.b);
 
-  // Draw Background Mask (if sampled)
+  // Draw Background Mask (if bgColor provided — already normalized to 0-1)
   if (format?.bgColor) {
-    // Total bounding box height: Number of lines * line height
     const totalHeight = Math.max(height, lines.length * lineHeightMetrics);
     page.drawRectangle({
       x: x,
-      y: y + fontSize * 0.85 - totalHeight, // Top-left converted to PDF origin bottom
+      y: y + fontSize * 0.85 - totalHeight,
       width: width,
       height: totalHeight,
-      color: rgb(format.bgColor.r / 255, format.bgColor.g / 255, format.bgColor.b / 255),
+      color: rgb(
+        Math.min(1, Math.max(0, format.bgColor.r)),
+        Math.min(1, Math.max(0, format.bgColor.g)),
+        Math.min(1, Math.max(0, format.bgColor.b)),
+      ),
       borderWidth: 0,
     });
   }
@@ -291,7 +317,7 @@ async function drawFormattedText(
   for (const line of lines) {
     const textWidth = font.widthOfTextAtSize(line, fontSize);
     let finalX = x;
-    
+
     // Alignment Offsets
     if (format?.alignment === "center") {
       finalX = x + width / 2 - textWidth / 2;
@@ -546,6 +572,7 @@ async function addImage(
 async function bakeEdits(
   pdfBytes: Uint8Array,
   overlays: BakeOverlay[],
+  pagesSeq?: Array<{ pdfPageIndex: number }>,
   customFontBytes?: Uint8Array,
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(pdfBytes);
@@ -578,6 +605,99 @@ async function bakeEdits(
     return font;
   }
 
+  // ── Flatten image with filters/crop/cornerRadius into raw PNG bytes ──
+  async function flattenImageForPdf(
+    overlay: BakeImageOverlay,
+  ): Promise<Uint8Array> {
+    const w = Math.max(1, Math.round(overlay.width));
+    const h = Math.max(1, Math.round(overlay.height));
+
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("OffscreenCanvas 2D context not available");
+
+    // Load the original image bytes into a bitmap
+    const imgCopy = new Uint8Array(overlay.imageBytes);
+    const blob = new Blob([imgCopy.buffer as ArrayBuffer], {
+      type: overlay.imageType === "png" ? "image/png" : "image/jpeg",
+    });
+    const imgBitmap = await createImageBitmap(blob);
+
+    // Apply CSS-style filter string
+    let filterStr = "";
+    if (overlay.filters) {
+      if (overlay.filters.blurRadius && overlay.filters.blurRadius > 0)
+        filterStr += `blur(${overlay.filters.blurRadius}px) `;
+      if (overlay.filters.brightness && overlay.filters.brightness !== 0)
+        filterStr += `brightness(${100 + overlay.filters.brightness}%) `;
+      if (overlay.filters.contrast && overlay.filters.contrast !== 0)
+        filterStr += `contrast(${100 + overlay.filters.contrast}%) `;
+      if (overlay.filters.grayscale) filterStr += `grayscale(100%) `;
+      if (
+        overlay.filters.saturate !== undefined &&
+        overlay.filters.saturate !== 100
+      )
+        filterStr += `saturate(${overlay.filters.saturate}%) `;
+      if (overlay.filters.hueRotate)
+        filterStr += `hue-rotate(${overlay.filters.hueRotate}deg) `;
+      if (overlay.filters.sepia) filterStr += `sepia(100%) `;
+      if (overlay.filters.invert) filterStr += `invert(100%) `;
+    }
+    if (filterStr) {
+      (ctx as any).filter = filterStr.trim();
+    }
+
+    // Apply corner radius clipping
+    if (overlay.cornerRadius && overlay.cornerRadius > 0) {
+      ctx.beginPath();
+      const r = overlay.cornerRadius;
+      ctx.moveTo(r, 0);
+      ctx.lineTo(w - r, 0);
+      ctx.quadraticCurveTo(w, 0, w, r);
+      ctx.lineTo(w, h - r);
+      ctx.quadraticCurveTo(w, h, w - r, h);
+      ctx.lineTo(r, h);
+      ctx.quadraticCurveTo(0, h, 0, h - r);
+      ctx.lineTo(0, r);
+      ctx.quadraticCurveTo(0, 0, r, 0);
+      ctx.closePath();
+      ctx.clip();
+    }
+
+    // Draw the image (cropped or full)
+    if (overlay.crop) {
+      ctx.drawImage(
+        imgBitmap,
+        overlay.crop.x,
+        overlay.crop.y,
+        overlay.crop.width,
+        overlay.crop.height,
+        0,
+        0,
+        w,
+        h,
+      );
+    } else {
+      ctx.drawImage(imgBitmap, 0, 0, w, h);
+    }
+
+    // Convert to PNG bytes
+    const finalBlob = await canvas.convertToBlob({ type: "image/png" });
+    return new Uint8Array(await finalBlob.arrayBuffer());
+  }
+
+  // 0. Remove deleted pages before applying overlays
+  if (pagesSeq) {
+    const validIndices = new Set(pagesSeq.map((p) => p.pdfPageIndex));
+    const totalOriginalPages = pdf.getPageCount();
+    // Remove pages from back to front so indices don't shift during removal
+    for (let i = totalOriginalPages - 1; i >= 0; i--) {
+      if (!validIndices.has(i)) {
+        pdf.removePage(i);
+      }
+    }
+  }
+
   const pages = pdf.getPages();
 
   for (const overlay of overlays) {
@@ -586,6 +706,36 @@ async function bakeEdits(
 
     switch (overlay.type) {
       case "TEXT": {
+        // 1. Erase the original baked text completely before trying to draw new editable text
+        if (
+          overlay.isOriginal &&
+          overlay.originX !== undefined &&
+          overlay.originY !== undefined
+        ) {
+          const oHeight = overlay.originHeight || 20;
+          const pdfOriginY = page.getHeight() - overlay.originY - oHeight;
+          // sampledBackgroundColor is ALREADY in 0-1 range from normalizeColor()
+          // Do NOT divide by 255 again or you get near-black masks!
+          const maskColor = overlay.sampledBackgroundColor || {
+            r: 1,
+            g: 1,
+            b: 1,
+          };
+
+          page.drawRectangle({
+            x: overlay.originX,
+            y: pdfOriginY,
+            width: overlay.originWidth || 100,
+            height: oHeight,
+            color: rgb(
+              Math.min(1, Math.max(0, maskColor.r)),
+              Math.min(1, Math.max(0, maskColor.g)),
+              Math.min(1, Math.max(0, maskColor.b)),
+            ),
+            borderWidth: 0,
+          });
+        }
+
         const font = await getFont(
           overlay.fontFamily,
           overlay.isBold,
@@ -614,10 +764,36 @@ async function bakeEdits(
       }
 
       case "IMAGE": {
+        let finalImageBytes: Uint8Array = overlay.imageBytes;
+        let finalImageType = overlay.imageType;
+
+        // If filters, crop, or cornerRadius are set, we must flatten the image
+        const hasFilters =
+          overlay.filters &&
+          ((overlay.filters.brightness && overlay.filters.brightness !== 0) ||
+            (overlay.filters.contrast && overlay.filters.contrast !== 0) ||
+            (overlay.filters.blurRadius && overlay.filters.blurRadius > 0) ||
+            overlay.filters.grayscale ||
+            (overlay.filters.saturate !== undefined &&
+              overlay.filters.saturate !== 100) ||
+            overlay.filters.sepia ||
+            overlay.filters.invert);
+        const hasCrop = !!overlay.crop;
+        const hasCornerRadius = (overlay.cornerRadius || 0) > 0;
+
+        if (hasFilters || hasCrop || hasCornerRadius) {
+          try {
+            finalImageBytes = await flattenImageForPdf(overlay);
+            finalImageType = "png"; // flattened images are always PNG
+          } catch (err) {
+            console.warn("Image flattening failed, using raw image", err);
+          }
+        }
+
         const embeddedImage =
-          overlay.imageType === "png"
-            ? await pdf.embedPng(overlay.imageBytes)
-            : await pdf.embedJpg(overlay.imageBytes);
+          finalImageType === "png"
+            ? await pdf.embedPng(finalImageBytes)
+            : await pdf.embedJpg(finalImageBytes);
         const pdfY = page.getHeight() - overlay.y - overlay.height;
         page.drawImage(embeddedImage, {
           x: overlay.x,
@@ -632,14 +808,20 @@ async function bakeEdits(
 
       case "RECTANGLE": {
         const pdfY = page.getHeight() - overlay.y - overlay.height;
+        const o = overlay as BakeRectangleOverlay;
         page.drawRectangle({
-          x: overlay.x,
+          x: o.x,
           y: pdfY,
-          width: overlay.width,
-          height: overlay.height,
-          color: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
-          opacity: overlay.opacity,
-          borderWidth: 0,
+          width: o.width,
+          height: o.height,
+          color: o.fillColor
+            ? rgb(o.fillColor.r, o.fillColor.g, o.fillColor.b)
+            : undefined,
+          borderColor: o.strokeColor
+            ? rgb(o.strokeColor.r, o.strokeColor.g, o.strokeColor.b)
+            : undefined,
+          borderWidth: o.strokeColor ? o.lineWidth || 2 : 0,
+          opacity: o.opacity,
         });
         break;
       }
@@ -900,8 +1082,13 @@ const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
       b as number,
       c as { x: number; y: number; width: number; height: number },
     ),
-  bakeEdits: (a: unknown, b: unknown, c: unknown) =>
-    bakeEdits(a as Uint8Array, b as BakeOverlay[], c as Uint8Array | undefined),
+  bakeEdits: (a: unknown, b: unknown, c: unknown, d: unknown) =>
+    bakeEdits(
+      a as Uint8Array,
+      b as BakeOverlay[],
+      c as Array<{ pdfPageIndex: number }> | undefined,
+      d as Uint8Array | undefined,
+    ),
 };
 
 // ── Message handler ─────────────────────────────────────────────────

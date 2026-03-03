@@ -10,7 +10,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { uploadToDrive, createDriveFolder } from "@/app/actions/drive";
+import { uploadToDrive, createDriveFolder, fetchDriveItems, type DriveItem } from "@/app/actions/drive";
 import {
   ArrowLeft,
   Check,
@@ -18,6 +18,8 @@ import {
   Upload,
   Loader2,
   FolderPlus,
+  Folder,
+  ChevronRight,
 } from "lucide-react";
 import { get } from "idb-keyval";
 import { usePDFWorker } from "@/hooks/usePDFWorker";
@@ -44,7 +46,37 @@ export function UploadToDriveModal({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [newFolderId, setNewFolderId] = useState<string | null>(null);
 
+  // Folder Browsing State
+  const [folders, setFolders] = useState<DriveItem[]>([]);
+  const [isLoadingFolders, setIsLoadingFolders] = useState(false);
+  const [folderHistory, setFolderHistory] = useState<{ id: string; name: string }[]>([
+    { id: "root", name: "My Drive" },
+  ]);
+
   const worker = usePDFWorker();
+
+  // Fetch folders when current directory changes
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    const fetchFolders = async () => {
+      setIsLoadingFolders(true);
+      try {
+        const items = await fetchDriveItems(parentFolderId);
+        if (isMounted) {
+          setFolders(items.filter((i) => i.isFolder));
+        }
+      } catch (err) {
+        console.error("Failed to load folders", err);
+      } finally {
+        if (isMounted) setIsLoadingFolders(false);
+      }
+    };
+    fetchFolders();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, parentFolderId, step]);
 
   // On open, read origin info from sessionStorage
   useEffect(() => {
@@ -60,14 +92,25 @@ export function UploadToDriveModal({
         try {
           const origin = JSON.parse(originRaw);
           setFileName(origin.fileName || "document.pdf");
-          setParentFolderId(origin.parentFolderId || "root");
+          if (origin.parentFolderId && origin.parentFolderId !== "root") {
+            setParentFolderId(origin.parentFolderId);
+            setFolderHistory([
+              { id: "root", name: "My Drive" },
+              { id: origin.parentFolderId, name: "Original Folder" },
+            ]);
+          } else {
+            setParentFolderId("root");
+            setFolderHistory([{ id: "root", name: "My Drive" }]);
+          }
         } catch {
           setFileName("document.pdf");
           setParentFolderId("root");
+          setFolderHistory([{ id: "root", name: "My Drive" }]);
         }
       } else {
         setFileName("document.pdf");
         setParentFolderId("root");
+        setFolderHistory([{ id: "root", name: "My Drive" }]);
       }
     }
   }, [isOpen]);
@@ -168,9 +211,64 @@ export function UploadToDriveModal({
                         e.key === "Enter" && handleUpload(parentFolderId)
                       }
                     />
-                    <p className="text-xs text-slate-400 mt-1.5">
-                      Will be uploaded to the original folder on your Drive.
-                    </p>
+                  </div>
+                  
+                  {/* Folder Browser */}
+                  <div className="border border-slate-200 rounded-lg bg-white overflow-hidden flex flex-col h-48">
+                    {/* Breadcrumbs */}
+                    <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center gap-1 overflow-x-auto whitespace-nowrap custom-scrollbar">
+                      {folderHistory.map((hist, idx) => (
+                        <div key={hist.id} className="flex items-center text-xs">
+                          <button
+                            onClick={() => {
+                              const newHistory = folderHistory.slice(0, idx + 1);
+                              setFolderHistory(newHistory);
+                              setParentFolderId(hist.id);
+                            }}
+                            className={`hover:text-indigo-600 transition-colors ${
+                              idx === folderHistory.length - 1
+                                ? "font-semibold text-slate-800"
+                                : "text-slate-500"
+                            }`}
+                          >
+                            {hist.name}
+                          </button>
+                          {idx < folderHistory.length - 1 && (
+                            <ChevronRight className="w-3 h-3 text-slate-400 mx-1 shrink-0" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Folder List */}
+                    <div className="flex-1 overflow-y-auto p-2 custom-scrollbar relative">
+                      {isLoadingFolders ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm">
+                          <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                        </div>
+                      ) : folders.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-400 text-xs">
+                          <Folder className="w-6 h-6 mb-1 opacity-20" />
+                          No folders here
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {folders.map((f) => (
+                            <button
+                              key={f.id}
+                              onClick={() => {
+                                setFolderHistory([...folderHistory, { id: f.id, name: f.name }]);
+                                setParentFolderId(f.id);
+                              }}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-md text-left transition-colors group"
+                            >
+                              <Folder className="w-4 h-4 text-amber-400 shrink-0 group-hover:text-amber-500" />
+                              <span className="text-sm text-slate-700 truncate">{f.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {error && (

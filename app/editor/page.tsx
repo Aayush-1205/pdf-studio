@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import Canvas from "@/components/editor/Canvas";
+import { DocumentStats } from "@/components/editor/DocumentStats";
 
 export default function EditorPage() {
   return (
@@ -22,6 +23,7 @@ export default function EditorPage() {
             </span>
           </div>
         </div>
+        <DocumentStats />
       </header>
 
       {/* <main className="flex-1 flex overflow-hidden w-full relative">

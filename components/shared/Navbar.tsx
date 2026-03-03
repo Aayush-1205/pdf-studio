@@ -22,7 +22,6 @@ export function Navbar() {
         <div className="hidden md:flex items-center gap-1">
           {[
             { label: "Edit", href: "/edit" },
-            { label: "Merge", href: "/merge" },
             { label: "Compress", href: "/compress" },
             { label: "Rotate", href: "/rotate" },
           ].map((item) => (
