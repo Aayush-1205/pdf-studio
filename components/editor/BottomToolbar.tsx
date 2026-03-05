@@ -1,6 +1,7 @@
 "use client";
 
 import { useCanvasStore, CanvasMode } from "../../store/useCanvasStore";
+import { useShallow } from "zustand/react/shallow";
 import {
   MousePointer2,
   Square,
@@ -19,7 +20,12 @@ import { generateBakedPDF } from "../../hooks/useExportPDF";
 import { RenameExportModal } from "../pdf/RenameExportModal";
 
 export default function BottomToolbar() {
-  const { mode, setMode } = useCanvasStore();
+  const { mode, setMode } = useCanvasStore(
+    useShallow((state) => ({
+      mode: state.mode,
+      setMode: state.setMode,
+    })),
+  );
   const worker = usePDFWorker();
   const [isExporting, setIsExporting] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);

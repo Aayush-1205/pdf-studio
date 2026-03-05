@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasStore, CanvasMode } from "../../store/useCanvasStore";
+import { useShallow } from "zustand/react/shallow";
 import {
   Stage,
   Layer,
@@ -78,7 +79,30 @@ export default function Canvas() {
     updateLayer,
     pencilDraft,
     pencilPageIndex,
-  } = useCanvasStore();
+  } = useCanvasStore(
+    useShallow((state) => ({
+      camera: state.camera,
+      setCamera: state.setCamera,
+      mode: state.mode,
+      setMode: state.setMode,
+      layerType: state.layerType,
+      layers: state.layers,
+      layerIds: state.layerIds,
+      selection: state.selection,
+      hoveredLayerId: state.hoveredLayerId,
+      isAltPressed: state.isAltPressed,
+      setAltPressed: state.setAltPressed,
+      setSelection: state.setSelection,
+      insertLayer: state.insertLayer,
+      startDrawing: state.startDrawing,
+      continueDrawing: state.continueDrawing,
+      endDrawing: state.endDrawing,
+      pages: state.pages,
+      updateLayer: state.updateLayer,
+      pencilDraft: state.pencilDraft,
+      pencilPageIndex: state.pencilPageIndex,
+    })),
+  );
 
   const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
   const stageRef = useRef<any>(null);
@@ -387,11 +411,32 @@ export default function Canvas() {
                       }
                     }}
                     onDragEnd={(e: any) => {
+                      // Get global Y relative to canvas 0,0
+                      const globalY = e.target.y() + offsetY;
+                      // Determine which page the layer now belongs to
+                      let targetPageIndex = layer.pageIndex;
+                      let relativeY = e.target.y();
+
+                      let currentPOffsetY = 0;
+                      for (let i = 0; i < pages.length; i++) {
+                        const pageTop = currentPOffsetY;
+                        const pageBottom = pageTop + pages[i].height + PAGE_GAP;
+                        // If center of layer is within this page bounds
+                        const centerY = globalY + layer.height / 2;
+                        if (centerY >= pageTop && centerY < pageBottom) {
+                          targetPageIndex = i;
+                          relativeY = globalY - pageTop;
+                          break;
+                        }
+                        currentPOffsetY += pages[i].height + PAGE_GAP;
+                      }
+
                       updateLayer(
                         id,
                         {
                           x: e.target.x(),
-                          y: e.target.y(),
+                          y: relativeY,
+                          pageIndex: targetPageIndex,
                         },
                         true,
                       );

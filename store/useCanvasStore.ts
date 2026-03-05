@@ -412,8 +412,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       y: point.y,
       width: initialValues.width || 100,
       height: initialValues?.height ?? 100,
-      fill: initialValues?.fill ?? "#D9D9D9",
-      stroke: initialValues?.stroke ?? "#000000",
+      // For TEXT, fill is text color (default black). For shapes, fill is shape background.
+      fill: initialValues?.fill ?? (type === "TEXT" ? "#000000" : "#D9D9D9"),
+      // For TEXT, stroke is text BACKGROUND (default transparent). For shapes, stroke is border.
+      stroke:
+        initialValues?.stroke ?? (type === "TEXT" ? "transparent" : "#000000"),
       opacity: initialValues?.opacity ?? 100,
       text: type === "TEXT" ? "Double click to edit" : undefined,
       fontSize: type === "TEXT" ? 16 : undefined,

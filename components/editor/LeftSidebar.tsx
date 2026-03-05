@@ -1,6 +1,7 @@
 "use client";
 
 import { useCanvasStore } from "../../store/useCanvasStore";
+import { useShallow } from "zustand/react/shallow";
 import {
   FolderPlus,
   FileUp,
@@ -43,7 +44,16 @@ export default function LeftSidebar() {
     selection,
     setSelection,
     deleteLayers,
-  } = useCanvasStore();
+  } = useCanvasStore(
+    useShallow((state) => ({
+      pages: state.pages,
+      layers: state.layers,
+      layerIds: state.layerIds,
+      selection: state.selection,
+      setSelection: state.setSelection,
+      deleteLayers: state.deleteLayers,
+    })),
+  );
   const [activeTab, setActiveTab] = useState<"drive" | "pages" | "layers">(
     "drive",
   );

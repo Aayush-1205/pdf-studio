@@ -653,8 +653,8 @@ async function bakeEdits(
 
     // Apply corner radius clipping
     if (overlay.cornerRadius && overlay.cornerRadius > 0) {
+      const r = Math.min(overlay.cornerRadius, w / 2, h / 2);
       ctx.beginPath();
-      const r = overlay.cornerRadius;
       ctx.moveTo(r, 0);
       ctx.lineTo(w - r, 0);
       ctx.quadraticCurveTo(w, 0, w, r);
@@ -828,35 +828,24 @@ async function bakeEdits(
           // We must mirror every Y value: pdfY = pageHeight - domY
           const ph = page.getHeight();
 
-          // Replace Y coordinates in SVG path commands (M x y, Q, C, L, etc.)
-          // The format from perfect-freehand is: M x y Q cx cy x y (repeated)
-          // We use a simple regex to flip every other number group.
           let rawPath = overlay.svgPath;
-          // Parse and flip Y values for M and Q commands
-          const flippedPath = rawPath
-            .replace(
-              /([MLCQTSA])\s*([\d.eE+-]+)\s+([\d.eE+-]+)/gi,
-              (match, cmd: string, xVal: string, yVal: string) => {
-                return `${cmd} ${xVal} ${ph - parseFloat(yVal)}`;
-              },
-            )
-            .replace(
-              // Also flip the second coordinate pair in Q commands
-              /Q\s*[\d.eE+-]+\s+[\d.eE+-]+\s+([\d.eE+-]+)\s+([\d.eE+-]+)/gi,
-              (match) => {
-                // Replace all numbers in the Q command Y positions
-                let result = match;
-                let count = 0;
-                result = match.replace(
-                  /([\d.eE+-]+)\s+([\d.eE+-]+)/g,
-                  (m, xv, yv) => {
-                    count++;
-                    return `${xv} ${ph - parseFloat(yv)}`;
-                  },
-                );
-                return result;
-              },
-            );
+          const tokens = rawPath.trim().split(/\s+/);
+          const flippedTokens = [];
+          for (let i = 0; i < tokens.length; i++) {
+            const t = tokens[i];
+            if (t === "M" || t === "Q" || t === "Z") {
+              flippedTokens.push(t);
+            } else {
+              // x
+              flippedTokens.push(t);
+              // y
+              if (i + 1 < tokens.length) {
+                flippedTokens.push(String(ph - parseFloat(tokens[i + 1])));
+                i++;
+              }
+            }
+          }
+          const flippedPath = flippedTokens.join(" ");
 
           page.drawSvgPath(flippedPath, {
             borderColor: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
@@ -1085,6 +1074,9 @@ async function compressPdf(
 ): Promise<Uint8Array> {
   const profile = COMPRESSION_PROFILES[level];
   const newPdfDoc = await PDFDocument.create();
+
+  // Fix Compressor Tool Failure: Explicitly set workerSrc
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
   // Create a raw slice so as to not mutate underlying memory if referenced
   const loadingTask = pdfjsLib.getDocument({

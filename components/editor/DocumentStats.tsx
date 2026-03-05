@@ -2,11 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { useCanvasStore } from "../../store/useCanvasStore";
+import { useShallow } from "zustand/react/shallow";
 import { Layers, HardDrive } from "lucide-react";
 
 export function DocumentStats() {
-  const pages = useCanvasStore((state) => state.pages);
-  const pdfBytes = useCanvasStore((state) => state.pdfBytes);
+  const { pages, pdfBytes } = useCanvasStore(
+    useShallow((state) => ({
+      pages: state.pages,
+      pdfBytes: state.pdfBytes,
+    })),
+  );
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => {

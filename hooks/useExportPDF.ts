@@ -63,11 +63,13 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
           width: layer.width,
           height: layer.height,
           fillColor:
-            layer.fill === "transparent"
+            !layer.fill || layer.fill === "transparent" || layer.fill === ""
               ? undefined
               : normalizeColor(layer.fill),
           strokeColor:
-            layer.stroke === "transparent"
+            !layer.stroke ||
+            layer.stroke === "transparent" ||
+            layer.stroke === ""
               ? undefined
               : normalizeColor(layer.stroke),
           opacity: (layer.opacity ?? 100) / 100,
@@ -91,9 +93,12 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
           // Fall back to stroke if explicitly set (and not transparent)
           bgColor:
             layer.sampledBackgroundColor &&
-            layer.sampledBackgroundColor !== "transparent"
+            layer.sampledBackgroundColor !== "transparent" &&
+            layer.sampledBackgroundColor !== ""
               ? normalizeColor(layer.sampledBackgroundColor)
-              : layer.stroke && layer.stroke !== "transparent"
+              : layer.stroke &&
+                  layer.stroke !== "transparent" &&
+                  layer.stroke !== ""
                 ? normalizeColor(layer.stroke)
                 : undefined,
           width: layer.width,
@@ -113,14 +118,20 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
           sampledBackgroundColor:
             layer.isOriginal &&
             layer.sampledBackgroundColor &&
-            layer.sampledBackgroundColor !== "transparent"
+            layer.sampledBackgroundColor !== "transparent" &&
+            layer.sampledBackgroundColor !== ""
               ? normalizeColor(layer.sampledBackgroundColor)
               : undefined,
         };
       }
 
       if (layer.type === "PATH") {
-        const strokePoints = getStroke(layer.points || [], {
+        const absolutePoints = (layer.points || []).map((p: number[]) => [
+          p[0] + layer.x,
+          p[1] + layer.y,
+        ]);
+
+        const strokePoints = getStroke(absolutePoints, {
           size: 4,
           thinning: 0.5,
           smoothing: 0.5,

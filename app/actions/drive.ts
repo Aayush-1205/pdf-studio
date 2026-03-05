@@ -1,7 +1,7 @@
 "use server";
 
 import { google } from "googleapis";
-import { Readable } from "stream";
+import stream, { Readable } from "stream";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 
 // ── Token Management ───────────────────────────────────────────────────────
@@ -182,30 +182,22 @@ export async function fetchDriveItems(
 ): Promise<DriveItem[]> {
   try {
     const drive = await getDriveClient();
-    const allItems: DriveItem[] = [];
-    let pageToken: string | undefined;
 
-    do {
-      const response = await drive.files.list({
-        q: `'${folderId}' in parents and trashed=false and (mimeType='application/vnd.google-apps.folder' or mimeType='application/pdf')`,
-        fields:
-          "nextPageToken, files(id, name, mimeType, thumbnailLink, size, createdTime, modifiedTime, parents)",
-        orderBy: "folder,name",
-        pageSize: 100,
-        pageToken,
-      });
+    const response = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and (mimeType='application/vnd.google-apps.folder' or mimeType='application/pdf')`,
+      fields:
+        "files(id, name, mimeType, thumbnailLink, size, createdTime, modifiedTime, parents)",
+      orderBy: "folder,name",
+      pageSize: 100,
+    });
 
-      const files =
-        response.data.files?.map((f) => ({
-          ...(f as DriveItem),
-          isFolder: f.mimeType === "application/vnd.google-apps.folder",
-        })) || [];
+    const files =
+      response.data.files?.map((f) => ({
+        ...(f as DriveItem),
+        isFolder: f.mimeType === "application/vnd.google-apps.folder",
+      })) || [];
 
-      allItems.push(...files);
-      pageToken = response.data.nextPageToken ?? undefined;
-    } while (pageToken);
-
-    return allItems;
+    return files;
   } catch (error: any) {
     console.error("[Drive API] Failed to fetch items:", error?.message);
     throw new Error(
@@ -271,9 +263,12 @@ export async function uploadToDrive(
       fileMetadata.parents = [parentFolderId];
     }
 
+    const passThrough = new stream.PassThrough();
+    passThrough.end(buffer);
+
     const media = {
       mimeType: "application/pdf",
-      body: Readable.from(buffer),
+      body: passThrough,
     };
 
     const response = await drive.files.create({

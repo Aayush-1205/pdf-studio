@@ -1,6 +1,7 @@
 "use client";
 
 import { useCanvasStore } from "../../store/useCanvasStore";
+import { useShallow } from "zustand/react/shallow";
 import { useEffect } from "react";
 import {
   CopyPlus,
@@ -58,7 +59,16 @@ export default function RightPropertyPanel() {
     deleteLayers,
     reorderLayer,
     insertLayer,
-  } = useCanvasStore();
+  } = useCanvasStore(
+    useShallow((state) => ({
+      selection: state.selection,
+      layers: state.layers,
+      updateLayer: state.updateLayer,
+      deleteLayers: state.deleteLayers,
+      reorderLayer: state.reorderLayer,
+      insertLayer: state.insertLayer,
+    })),
+  );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -410,7 +420,7 @@ export default function RightPropertyPanel() {
               {activeLayer.type === "TEXT" ? "Text Color Drop" : "Fill"}
             </h4>
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg overflow-hidden border border-gray-200 shadow-sm flex-shrink-0 cursor-pointer relative">
+              <div className="w-8 h-8 rounded-lg overflow-hidden border border-gray-200 shadow-sm shrink-0 cursor-pointer relative">
                 <input
                   type="color"
                   value={
