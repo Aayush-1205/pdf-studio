@@ -1,7 +1,11 @@
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+import * as pdfjsLib from "pdfjs-dist";
 
-// ── Bake Overlay Types (inline — workers can't use @/ aliases) ──────
+// CRITICAL FIX: To prevent "No GlobalWorkerOptions.workerSrc" and avoid
+// spawning sub-workers from inside a Web Worker, we natively import the worker
+// script. This evaluates it inline and automatically sets up the fake worker.
+import "pdfjs-dist/build/pdf.worker.min.mjs";
 
 interface BakeTextOverlay {
   type: "TEXT";
@@ -686,17 +690,9 @@ async function bakeEdits(
     return new Uint8Array(await finalBlob.arrayBuffer());
   }
 
-  // 0. Remove deleted pages before applying overlays
-  if (pagesSeq) {
-    const validIndices = new Set(pagesSeq.map((p) => p.pdfPageIndex));
-    const totalOriginalPages = pdf.getPageCount();
-    // Remove pages from back to front so indices don't shift during removal
-    for (let i = totalOriginalPages - 1; i >= 0; i--) {
-      if (!validIndices.has(i)) {
-        pdf.removePage(i);
-      }
-    }
-  }
+  // Note: we NO LONGER manually remove pages from `pdf` here.
+  // `useExportPDF.ts` already perfectly constructs `basePdfBytes`
+  // with correct reordering, deletions, and newly inserted blank pages.
 
   const pages = pdf.getPages();
 
@@ -828,29 +824,45 @@ async function bakeEdits(
 
       case "DRAWING": {
         if (overlay.svgPath.trim()) {
-          // To invert a raw complex SVG path, we use the transformation matrix `[a, b, c, d, e, f]`
-          // We scale Y by -1 and translate Y by pageHeight.
-          page.drawSvgPath(overlay.svgPath, {
-            borderColor: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
-            borderWidth: overlay.lineWidth,
-            color: undefined, // no fill
-          });
-          // We can wrap the whole page generator with an SVG translation matrix if we really want to invert paths seamlessly.
-          // However `pdf-lib` does not accept raw matrix transforms natively on drawSvgPath. Let's do a simple RegEx invert on the strings.
-          // `getSvgPathFromStroke` generates absolute points "M x y Q cx cy x y"
-          let invertedPath = overlay.svgPath;
+          // pdfjs paths use DOM top-left, PDF uses bottom-left origin.
+          // We must mirror every Y value: pdfY = pageHeight - domY
           const ph = page.getHeight();
-          invertedPath = invertedPath.replace(
-            /-?\d+(\.\d+)?/g,
-            (match, index, str) => {
-              // Only flip Y values. We can roughly tell by parsing spaces.
-              // A safer way is parsing the svg string properly, but as a shortcut just keep the logic in `useExportPDF`?
-              return match;
-            },
-          );
-          console.warn("Raw SVG drawing inversion incomplete.");
 
-          // Fallback to basic drawing for now, the path logic might need to flip inside `useExportPDF`.
+          // Replace Y coordinates in SVG path commands (M x y, Q, C, L, etc.)
+          // The format from perfect-freehand is: M x y Q cx cy x y (repeated)
+          // We use a simple regex to flip every other number group.
+          let rawPath = overlay.svgPath;
+          // Parse and flip Y values for M and Q commands
+          const flippedPath = rawPath
+            .replace(
+              /([MLCQTSA])\s*([\d.eE+-]+)\s+([\d.eE+-]+)/gi,
+              (match, cmd: string, xVal: string, yVal: string) => {
+                return `${cmd} ${xVal} ${ph - parseFloat(yVal)}`;
+              },
+            )
+            .replace(
+              // Also flip the second coordinate pair in Q commands
+              /Q\s*[\d.eE+-]+\s+[\d.eE+-]+\s+([\d.eE+-]+)\s+([\d.eE+-]+)/gi,
+              (match) => {
+                // Replace all numbers in the Q command Y positions
+                let result = match;
+                let count = 0;
+                result = match.replace(
+                  /([\d.eE+-]+)\s+([\d.eE+-]+)/g,
+                  (m, xv, yv) => {
+                    count++;
+                    return `${xv} ${ph - parseFloat(yv)}`;
+                  },
+                );
+                return result;
+              },
+            );
+
+          page.drawSvgPath(flippedPath, {
+            borderColor: rgb(overlay.color.r, overlay.color.g, overlay.color.b),
+            borderWidth: overlay.lineWidth || 2,
+            color: undefined,
+          });
         }
         break;
       }
@@ -865,57 +877,85 @@ async function bakeEdits(
           color,
           fillColor,
           lineWidth,
-        } = overlay as any; // Type workaround for SHAPE
+        } = overlay as any;
         const colorRgb = color ? rgb(color.r, color.g, color.b) : undefined;
         const fillRgb = fillColor
           ? rgb(fillColor.r, fillColor.g, fillColor.b)
           : undefined;
-        let path = "";
 
         const ph = page.getHeight();
-        let pdfY = ph - y - h;
+        // PDF origin is bottom-left. DOM origin is top-left.
+        // For a rectangle: pdfY = pageHeight - domY - elementHeight
+        const pdfY = ph - y - h;
 
-        if (shapeType === "rect") {
-          path = `M ${x} ${pdfY} L ${x + w} ${pdfY} L ${x + w} ${pdfY + h} L ${x} ${pdfY + h} Z`;
-        } else if (shapeType === "circle") {
-          const cy = ph - y - h / 2;
-          path = `M ${x + w / 2} ${cy + h / 2} A ${w / 2} ${h / 2} 0 1 0 ${x + w / 2} ${cy - h / 2} A ${w / 2} ${h / 2} 0 1 0 ${x + w / 2} ${cy + h / 2}`;
-        } else if (shapeType === "line") {
-          path = `M ${x} ${ph - y - h} L ${x + w} ${ph - y}`;
-        } else if (shapeType === "arrow") {
-          const headlen = 10;
-          const ang = Math.atan2(h, w); // Inverted Y angle
-          const yStart = ph - y - h;
-          const yEnd = ph - y;
-          path = `M ${x} ${yStart} L ${x + w} ${yEnd} `;
-          const x1 = x + w - headlen * Math.cos(ang - Math.PI / 6);
-          const y1 = yEnd - headlen * Math.sin(ang - Math.PI / 6);
-          path += `M ${x + w} ${yEnd} L ${x1} ${y1} `;
-          const x2 = x + w - headlen * Math.cos(ang + Math.PI / 6);
-          const y2 = yEnd - headlen * Math.sin(ang + Math.PI / 6);
-          path += `M ${x + w} ${yEnd} L ${x2} ${y2}`;
-        } else if (shapeType === "triangle") {
-          path = `M ${x + w / 2} ${ph - (y + h)} L ${x + w} ${ph - y} L ${x} ${ph - y} Z`;
-        } else if (shapeType === "star") {
+        if (shapeType === "circle") {
+          // drawEllipse takes the CENTER x,y (in PDF coords), plus xScale and yScale
           const cx = x + w / 2;
-          const cy = ph - (y + h / 2);
-          const outerRad = Math.min(w, h) / 2;
-          const innerRad = outerRad / 2.5;
-          for (let i = 0; i < 10; i++) {
-            const r = i % 2 === 0 ? outerRad : innerRad;
-            const a = -(Math.PI * 2 * i) / 10 + Math.PI / 2;
-            const px = cx + Math.cos(a) * r;
-            const py = cy + Math.sin(a) * r;
-            path += i === 0 ? `M ${px} ${py} ` : `L ${px} ${py} `;
-          }
-          path += "Z";
-        }
-
-        if (path) {
-          page.drawSvgPath(path, {
-            borderColor: colorRgb,
-            borderWidth: lineWidth,
+          const cy = pdfY + h / 2;
+          page.drawEllipse({
+            x: cx,
+            y: cy,
+            xScale: w / 2,
+            yScale: h / 2,
             color: fillRgb,
+            borderColor: colorRgb,
+            borderWidth: lineWidth ?? 1,
+            opacity: 1,
+          });
+        } else if (shapeType === "rect") {
+          page.drawRectangle({
+            x,
+            y: pdfY,
+            width: w,
+            height: h,
+            color: fillRgb,
+            borderColor: colorRgb,
+            borderWidth: colorRgb ? (lineWidth ?? 1) : 0,
+            opacity: 1,
+          });
+        } else if (shapeType === "line") {
+          const startX = x;
+          const startY = ph - y;
+          const endX = x + w;
+          const endY = ph - (y + h);
+          page.drawLine({
+            start: { x: startX, y: startY },
+            end: { x: endX, y: endY },
+            color: colorRgb || fillRgb,
+            thickness: lineWidth ?? 2,
+          });
+        } else if (shapeType === "arrow") {
+          // Draw shaft
+          const startX = x;
+          const startY = ph - y;
+          const endX = x + w;
+          const endY = ph - (y + h);
+          page.drawLine({
+            start: { x: startX, y: startY },
+            end: { x: endX, y: endY },
+            color: colorRgb || fillRgb,
+            thickness: lineWidth ?? 2,
+          });
+          // Arrowhead
+          const headlen = Math.max(10, (lineWidth ?? 2) * 4);
+          const ang = Math.atan2(endY - startY, endX - startX);
+          page.drawLine({
+            start: { x: endX, y: endY },
+            end: {
+              x: endX - headlen * Math.cos(ang - Math.PI / 6),
+              y: endY - headlen * Math.sin(ang - Math.PI / 6),
+            },
+            color: colorRgb || fillRgb,
+            thickness: lineWidth ?? 2,
+          });
+          page.drawLine({
+            start: { x: endX, y: endY },
+            end: {
+              x: endX - headlen * Math.cos(ang + Math.PI / 6),
+              y: endY - headlen * Math.sin(ang + Math.PI / 6),
+            },
+            color: colorRgb || fillRgb,
+            thickness: lineWidth ?? 2,
           });
         }
         break;
@@ -954,6 +994,136 @@ async function bakeHighlights(
   }
 
   return pdf.save();
+}
+
+// ── Page Resize Engine ─────────────────────────────────────────────────────
+
+function calculateScaleAndPosition(
+  origWidth: number,
+  origHeight: number,
+  targetWidth: number,
+  targetHeight: number,
+) {
+  const scaleX = targetWidth / origWidth;
+  const scaleY = targetHeight / origHeight;
+  const scale = Math.min(scaleX, scaleY);
+  const scaledWidth = origWidth * scale;
+  const scaledHeight = origHeight * scale;
+  const x = (targetWidth - scaledWidth) / 2;
+  const y = (targetHeight - scaledHeight) / 2;
+  return { scale, x, y };
+}
+
+async function resizePdfPages(
+  fileBuffer: Uint8Array,
+  targetWidth: number,
+  targetHeight: number,
+  pagesToResize: number[], // 0-based indices; pass [] for none, full array for all
+): Promise<Uint8Array> {
+  const originalPdf = await PDFDocument.load(fileBuffer.slice(0));
+  const newPdf = await PDFDocument.create();
+  const originalPages = originalPdf.getPages();
+
+  for (let i = 0; i < originalPages.length; i++) {
+    if (pagesToResize.includes(i)) {
+      // Attempt 1: embed-and-scale the original page content
+      let embedded = false;
+      try {
+        const newPage = newPdf.addPage([targetWidth, targetHeight]);
+        const embeddedPage = await newPdf.embedPage(originalPages[i]);
+        const origDims = embeddedPage.size();
+        const { scale, x, y } = calculateScaleAndPosition(
+          origDims.width,
+          origDims.height,
+          targetWidth,
+          targetHeight,
+        );
+        newPage.drawPage(embeddedPage, { x, y, xScale: scale, yScale: scale });
+        embedded = true;
+      } catch (embedErr) {
+        // pdf-lib throws "Can't embed page with missing Contents" for blank/empty pages.
+        // In this case we simply create a blank page at the target dimensions — the
+        // original page had no visual content anyway.
+        console.warn(
+          `[resizePdfPages] Page ${i} has no content stream, inserting blank page at target size.`,
+          embedErr,
+        );
+      }
+
+      // Fallback: blank page at target size (already added above on success)
+      if (!embedded) {
+        newPdf.addPage([targetWidth, targetHeight]);
+      }
+    } else {
+      // Non-resized page: copy as-is
+      try {
+        const [copied] = await newPdf.copyPages(originalPdf, [i]);
+        newPdf.addPage(copied);
+      } catch {
+        // If copying also fails (very corrupt pages), add blank with original dimensions
+        const orig = originalPages[i];
+        const { width, height } = orig.getSize();
+        newPdf.addPage([width, height]);
+      }
+    }
+  }
+
+  return newPdf.save();
+}
+
+// ── Compression Engine ──────────────────────────────────────────────
+
+const COMPRESSION_PROFILES = {
+  LOW: { scale: 1.5, quality: 0.8 },
+  MEDIUM: { scale: 1.0, quality: 0.5 },
+  EXTREME: { scale: 0.7, quality: 0.2 },
+};
+
+async function compressPdf(
+  fileBuffer: Uint8Array,
+  level: "LOW" | "MEDIUM" | "EXTREME",
+): Promise<Uint8Array> {
+  const profile = COMPRESSION_PROFILES[level];
+  const newPdfDoc = await PDFDocument.create();
+
+  // Create a raw slice so as to not mutate underlying memory if referenced
+  const loadingTask = pdfjsLib.getDocument({
+    data: fileBuffer.slice(0),
+    standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
+  });
+  const pdf = await loadingTask.promise;
+  const numPages = pdf.numPages;
+
+  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: profile.scale });
+
+    const canvas = new OffscreenCanvas(viewport.width, viewport.height);
+    const ctx = canvas.getContext("2d");
+
+    if (ctx) {
+      const renderContext: any = { canvasContext: ctx, viewport: viewport };
+      await page.render(renderContext).promise;
+
+      const blob = await canvas.convertToBlob({
+        type: "image/jpeg",
+        quality: profile.quality,
+      });
+      const jpegBuffer = await blob.arrayBuffer();
+
+      const embeddedImage = await newPdfDoc.embedJpg(jpegBuffer);
+      const newPage = newPdfDoc.addPage([viewport.width, viewport.height]);
+
+      newPage.drawImage(embeddedImage, {
+        x: 0,
+        y: 0,
+        width: viewport.width,
+        height: viewport.height,
+      });
+    }
+  }
+
+  return await newPdfDoc.save({ useObjectStreams: false });
 }
 
 // ── Method dispatch map ─────────────────────────────────────────────
@@ -1089,6 +1259,10 @@ const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
       c as Array<{ pdfPageIndex: number }> | undefined,
       d as Uint8Array | undefined,
     ),
+  compressPdf: (a: unknown, b: unknown) =>
+    compressPdf(a as Uint8Array, b as "LOW" | "MEDIUM" | "EXTREME"),
+  resizePdfPages: (a: unknown, b: unknown, c: unknown, d: unknown) =>
+    resizePdfPages(a as Uint8Array, b as number, c as number, d as number[]),
 };
 
 // ── Message handler ─────────────────────────────────────────────────

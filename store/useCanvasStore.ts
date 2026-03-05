@@ -142,7 +142,7 @@ type CanvasState = {
     width: number,
     height: number,
     groupName?: string,
-    insertIndex?: number,
+    insertIndex?: number | string,
   ) => void;
   reorderPages: (oldIndex: number, newIndex: number) => void;
   deletePage: (pageIndex: number) => void;
@@ -274,33 +274,72 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   addBlankPage: (width, height, groupName, insertIndex) =>
     set((state) => {
       get().saveHistory();
-      const newPage: Page = {
+      const createBlankPage = (): Page => ({
         id: nanoid(),
         width,
         height,
         groupName: groupName || "Blank Page",
-      };
+      });
 
-      const newPages = [...state.pages];
-      if (
-        insertIndex !== undefined &&
-        insertIndex >= 0 &&
-        insertIndex <= newPages.length
-      ) {
-        newPages.splice(insertIndex, 0, newPage);
-      } else {
-        newPages.push(newPage);
-      }
+      let newPages: Page[] = [];
+      const indexMap = new Map<number, number>();
+      let newIndex = 0;
 
-      // We also need to push layer pageIndexes down if we insert a page in the middle!
-      const newLayers = { ...state.layers };
-      if (insertIndex !== undefined && insertIndex < state.pages.length) {
-        Object.keys(newLayers).forEach((id) => {
-          if (newLayers[id].pageIndex >= insertIndex) {
-            newLayers[id].pageIndex += 1;
+      // 1. Single insertion inside document
+      if (typeof insertIndex === "number") {
+        for (let i = 0; i < state.pages.length; i++) {
+          if (insertIndex === i) {
+            newPages.push(createBlankPage());
+            newIndex++;
           }
-        });
+          newPages.push(state.pages[i]);
+          indexMap.set(i, newIndex);
+          newIndex++;
+        }
+        if (insertIndex >= state.pages.length) {
+          newPages.push(createBlankPage());
+        }
       }
+      // 2. Multi-insertion logic (odd, even, every_N patterns)
+      else if (typeof insertIndex === "string" && insertIndex !== "end") {
+        // Parse N from "every_N" patterns (e.g. "every_3", "every_5", etc.)
+        const everyNMatch = insertIndex.match(/^every_(\d+)$/);
+        const everyN = everyNMatch ? parseInt(everyNMatch[1], 10) : null;
+
+        for (let i = 0; i < state.pages.length; i++) {
+          newPages.push(state.pages[i]);
+          indexMap.set(i, newIndex);
+          newIndex++;
+
+          let shouldInsert = false;
+          const pageNum = i + 1; // 1-based original page number
+          if (insertIndex === "odd" && pageNum % 2 !== 0) shouldInsert = true;
+          if (insertIndex === "even" && pageNum % 2 === 0) shouldInsert = true;
+          if (everyN !== null && pageNum % everyN === 0) shouldInsert = true;
+
+          if (shouldInsert) {
+            newPages.push(createBlankPage());
+            newIndex++;
+          }
+        }
+      }
+      // 3. Default (At End/Undefined)
+      else {
+        newPages = [...state.pages];
+        for (let i = 0; i < state.pages.length; i++) {
+          indexMap.set(i, i);
+        }
+        newPages.push(createBlankPage());
+      }
+
+      // Remap all layers to their new page indices to prevent ghosting
+      const newLayers = JSON.parse(JSON.stringify(state.layers));
+      Object.keys(newLayers).forEach((id) => {
+        const oldIdx = newLayers[id].pageIndex;
+        if (indexMap.has(oldIdx)) {
+          newLayers[id].pageIndex = indexMap.get(oldIdx)!;
+        }
+      });
 
       return { pages: newPages, layers: newLayers };
     }),

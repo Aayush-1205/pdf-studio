@@ -14,15 +14,20 @@ import {
   FileText,
   Download,
   Layers,
+  FileArchive,
+  Maximize2,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { UploadToDriveModal } from "../pdf/UploadToDriveModal";
 import { MergePDFModal } from "../pdf/MergePDFModal";
+import { CompressorModal } from "../pdf/CompressorModal";
+import { PageResizeModal } from "../pdf/PageResizeModal";
 import {
   fetchDriveItems,
   downloadDrivePdf,
   type DriveItem,
 } from "@/app/actions/drive";
+import { getGoogleDriveAuthUrl } from "@/app/actions/googleAuth";
 import { nanoid } from "nanoid";
 
 interface BreadcrumbItem {
@@ -44,12 +49,16 @@ export default function LeftSidebar() {
   );
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
-  const [insertIndex, setInsertIndex] = useState<number | "end">("end");
+  const [isCompressorModalOpen, setIsCompressorModalOpen] = useState(false);
+  const [isResizeModalOpen, setIsResizeModalOpen] = useState(false);
+  const [insertIndex, setInsertIndex] = useState<number | string>("end");
+  const [customInterval, setCustomInterval] = useState<number>(1);
 
   // Drive API State
   const [items, setItems] = useState<DriveItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAuthError, setIsAuthError] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([
     { id: "root", name: "My Drive" },
@@ -60,12 +69,23 @@ export default function LeftSidebar() {
   const loadItems = useCallback(async (folderId: string) => {
     setIsLoading(true);
     setError(null);
+    setIsAuthError(false);
     try {
       const driveItems = await fetchDriveItems(folderId);
       setItems(driveItems);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Failed to load files from Google Drive.");
+      const message = err?.message || "Failed to load files from Google Drive.";
+      setError(message);
+      // Detect auth-specific failures
+      if (
+        message.toLowerCase().includes("authenticate") ||
+        message.toLowerCase().includes("sign in") ||
+        message.toLowerCase().includes("permission") ||
+        message.toLowerCase().includes("refresh token")
+      ) {
+        setIsAuthError(true);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -162,11 +182,22 @@ export default function LeftSidebar() {
   const folders = items.filter((i) => i.isFolder);
   const pdfs = items.filter((i) => !i.isFolder);
 
-  const pagePresets = [
-    { name: "A4 (Portrait)", width: 800, height: 1131 },
-    { name: "A4 (Landscape)", width: 1131, height: 800 },
-    { name: "Letter (Portrait)", width: 816, height: 1056 },
-    { name: "Square Post", width: 1080, height: 1080 },
+  // Dynamically build page presets — prepend "Same as Document" if pages exist
+  const firstPage = pagesList[0];
+  const dynamicPresets = [
+    ...(firstPage
+      ? [
+          {
+            name: "Same as Document",
+            width: firstPage.width,
+            height: firstPage.height,
+          },
+        ]
+      : []),
+    { name: "A4 (Portrait)", width: 595, height: 842 },
+    { name: "A4 (Landscape)", width: 842, height: 595 },
+    { name: "Letter (Portrait)", width: 612, height: 792 },
+    { name: "Square Post", width: 794, height: 794 },
   ];
 
   return (
@@ -198,6 +229,18 @@ export default function LeftSidebar() {
           <MergePDFModal
             isOpen={isMergeModalOpen}
             onClose={() => setIsMergeModalOpen(false)}
+          />
+        )}
+        {isCompressorModalOpen && (
+          <CompressorModal
+            isOpen={isCompressorModalOpen}
+            onClose={() => setIsCompressorModalOpen(false)}
+          />
+        )}
+        {isResizeModalOpen && (
+          <PageResizeModal
+            isOpen={isResizeModalOpen}
+            onClose={() => setIsResizeModalOpen(false)}
           />
         )}
 
@@ -247,12 +290,39 @@ export default function LeftSidebar() {
                       <Loader2 className="w-5 h-5 animate-spin" />
                     </div>
                   ) : error ? (
-                    <div className="flex flex-col items-center text-center p-4">
-                      <AlertCircle className="w-6 h-6 text-red-400 mb-2" />
-                      <p className="text-[10px] text-red-500">{error}</p>
+                    <div className="flex flex-col items-center text-center p-4 gap-2">
+                      <AlertCircle className="w-6 h-6 text-red-400" />
+                      {isAuthError ? (
+                        <>
+                          <p className="text-[11px] font-semibold text-red-600">
+                            Google Drive: Auth Required
+                          </p>
+                          <p className="text-[10px] text-slate-500 leading-snug">
+                            Your Google token has expired or Drive scope was not
+                            granted.
+                          </p>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const url = await getGoogleDriveAuthUrl();
+                                window.location.href = url;
+                              } catch {
+                                alert(
+                                  "Could not generate auth URL. Check CLIENT_ID is set.",
+                                );
+                              }
+                            }}
+                            className="mt-1 px-3 py-1.5 text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                          >
+                            Connect Google Drive
+                          </button>
+                        </>
+                      ) : (
+                        <p className="text-[10px] text-red-500">{error}</p>
+                      )}
                       <button
                         onClick={() => loadItems(currentFolderId)}
-                        className="mt-2 text-[10px] text-blue-500 hover:underline"
+                        className="text-[10px] text-blue-500 hover:underline"
                       >
                         Retry
                       </button>
@@ -393,23 +463,65 @@ export default function LeftSidebar() {
                 <select
                   className="flex-1 text-xs p-1 bg-transparent border-none outline-none cursor-pointer focus:ring-0 text-gray-700 w-full font-medium"
                   value={insertIndex.toString()}
-                  onChange={(e) =>
-                    setInsertIndex(
-                      e.target.value === "end" ? "end" : Number(e.target.value),
-                    )
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (
+                      [
+                        "end",
+                        "odd",
+                        "even",
+                        "every_3",
+                        "custom_interval",
+                      ].includes(val)
+                    ) {
+                      setInsertIndex(val);
+                    } else {
+                      setInsertIndex(Number(val));
+                    }
+                  }}
                 >
                   <option value="end">At End of Document</option>
                   <option value="0">At Beginning</option>
-                  {pagesList.map((p, i) => (
-                    <option key={p.id} value={i + 1}>
-                      After Page {i + 1}
-                    </option>
-                  ))}
+                  <optgroup label="Advanced Patterns">
+                    <option value="odd">After Every Odd Page</option>
+                    <option value="even">After Every Even Page</option>
+                    <option value="every_3">After Every 3rd Page</option>
+                    <option value="custom_interval">Custom Interval...</option>
+                  </optgroup>
+                  <optgroup label="Specific Page">
+                    {pagesList.map((p, i) => (
+                      <option key={p.id} value={i + 1}>
+                        After Page {i + 1}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
+
+              {/* Custom interval field — show when user selects "Custom Interval..." */}
+              {insertIndex === "custom_interval" && (
+                <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 p-2 rounded-lg">
+                  <span className="text-[10px] text-yellow-700 font-medium whitespace-nowrap">
+                    Insert blank after every
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={customInterval}
+                    onChange={(e) =>
+                      setCustomInterval(Math.max(1, Number(e.target.value)))
+                    }
+                    className="w-12 text-sm text-center p-1 bg-white border border-yellow-300 rounded-lg font-semibold focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                  />
+                  <span className="text-[10px] text-yellow-700 font-medium whitespace-nowrap">
+                    pages
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2">
-                {pagePresets.map((p) => (
+                {dynamicPresets.map((p) => (
                   <button
                     key={p.name}
                     onClick={() => {
@@ -419,15 +531,41 @@ export default function LeftSidebar() {
                           p.width,
                           p.height,
                           p.name,
-                          insertIndex === "end" ? undefined : insertIndex,
+                          insertIndex === "end"
+                            ? undefined
+                            : insertIndex === "custom_interval"
+                              ? (`every_${customInterval}` as string)
+                              : insertIndex,
                         );
                     }}
-                    className="flex flex-col items-center justify-center p-3 border border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors text-center gap-1"
+                    className={`flex flex-col items-center justify-center p-3 border rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors text-center gap-1 ${
+                      p.name === "Same as Document"
+                        ? "border-blue-300 bg-blue-50/60 col-span-2"
+                        : "border-gray-200"
+                    }`}
                   >
-                    <PlusSquare size={20} className="text-gray-400" />
-                    <span className="text-[10px] font-medium text-gray-600">
+                    <PlusSquare
+                      size={20}
+                      className={
+                        p.name === "Same as Document"
+                          ? "text-blue-500"
+                          : "text-gray-400"
+                      }
+                    />
+                    <span
+                      className={`text-[10px] font-medium ${
+                        p.name === "Same as Document"
+                          ? "text-blue-700"
+                          : "text-gray-600"
+                      }`}
+                    >
                       {p.name}
                     </span>
+                    {p.name === "Same as Document" && (
+                      <span className="text-[9px] text-blue-400">
+                        {Math.round(p.width)} × {Math.round(p.height)} px
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -479,15 +617,31 @@ export default function LeftSidebar() {
 
                 <div className="mt-4 pt-4 border-t">
                   <h4 className="text-[10px] font-bold tracking-wider text-gray-400 uppercase mb-3">
-                    Merge Tools
+                    Document Tools
                   </h4>
-                  <button
-                    className="w-full flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 p-2.5 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors shadow-sm"
-                    onClick={() => setIsMergeModalOpen(true)}
-                  >
-                    <Layers size={16} />
-                    Merge Multiple PDFs
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      className="w-full flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 p-2.5 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors shadow-sm"
+                      onClick={() => setIsMergeModalOpen(true)}
+                    >
+                      <Layers size={16} />
+                      Merge Multiple PDFs
+                    </button>
+                    <button
+                      className="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-200 p-2.5 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors shadow-sm"
+                      onClick={() => setIsCompressorModalOpen(true)}
+                    >
+                      <FileArchive size={16} />
+                      Compress PDF Size
+                    </button>
+                    <button
+                      className="w-full flex items-center justify-center gap-2 bg-violet-50 text-violet-700 border border-violet-200 p-2.5 rounded-lg text-sm font-medium hover:bg-violet-100 transition-colors shadow-sm"
+                      onClick={() => setIsResizeModalOpen(true)}
+                    >
+                      <Maximize2 size={16} />
+                      Resize Pages
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-red-100">

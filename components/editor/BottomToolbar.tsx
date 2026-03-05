@@ -16,11 +16,13 @@ import {
 import { useState } from "react";
 import { usePDFWorker } from "../../hooks/usePDFWorker";
 import { generateBakedPDF } from "../../hooks/useExportPDF";
+import { RenameExportModal } from "../pdf/RenameExportModal";
 
 export default function BottomToolbar() {
   const { mode, setMode } = useCanvasStore();
   const worker = usePDFWorker();
   const [isExporting, setIsExporting] = useState(false);
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
 
   const isPointer =
     mode === CanvasMode.None ||
@@ -28,7 +30,7 @@ export default function BottomToolbar() {
     mode === CanvasMode.SelectionNet ||
     mode === CanvasMode.Resizing;
 
-  const handleExport = async () => {
+  const executeExport = async (filename: string) => {
     if (!worker) return;
     setIsExporting(true);
     try {
@@ -36,7 +38,7 @@ export default function BottomToolbar() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "edited_architect_document.pdf";
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -47,6 +49,11 @@ export default function BottomToolbar() {
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const handleExport = () => {
+    if (!worker) return;
+    setIsRenameModalOpen(true);
   };
 
   return (
@@ -124,18 +131,16 @@ export default function BottomToolbar() {
               if (file) {
                 const reader = new FileReader();
                 reader.onload = (event) => {
-                  useCanvasStore
-                    .getState()
-                    .insertLayer(
-                      "IMAGE",
-                      0, // Default to first page for floating insert
-                      { x: 100, y: 100 },
-                      {
-                        src: event.target?.result as string,
-                        width: 200,
-                        height: 200,
-                      },
-                    );
+                  useCanvasStore.getState().insertLayer(
+                    "IMAGE",
+                    0, // Default to first page for floating insert
+                    { x: 100, y: 100 },
+                    {
+                      src: event.target?.result as string,
+                      width: 200,
+                      height: 200,
+                    },
+                  );
                 };
                 reader.readAsDataURL(file);
               }
@@ -167,6 +172,12 @@ export default function BottomToolbar() {
           <span>{isExporting ? "Exporting..." : "Export PDF"}</span>
         </button>
       </div>
+
+      <RenameExportModal
+        isOpen={isRenameModalOpen}
+        onClose={() => setIsRenameModalOpen(false)}
+        onExport={executeExport}
+      />
     </div>
   );
 }

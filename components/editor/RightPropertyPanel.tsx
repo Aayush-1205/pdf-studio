@@ -386,6 +386,19 @@ export default function RightPropertyPanel() {
                   />
                 </div>
               </div>
+
+              {/* Live Text Edit */}
+              <div className="flex flex-col gap-1 mt-2">
+                <label className="text-[10px] text-gray-400 font-bold uppercase mb-1">
+                  Text Content
+                </label>
+                <textarea
+                  value={activeLayer.text || ""}
+                  onChange={(e) => handleChange("text", e.target.value)}
+                  className="w-full bg-gray-50 rounded-lg p-2 border border-gray-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 focus:outline-none text-xs text-gray-700 min-h-[60px] resize-y"
+                  placeholder="Enter text..."
+                />
+              </div>
             </div>
           </section>
         )}

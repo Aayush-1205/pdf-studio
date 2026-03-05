@@ -1,11 +1,9 @@
-import * as pdfjsLib from "pdfjs-dist";
+// NOTE: pdfjs-dist is NOT statically imported at module level.
+// Doing so crashes Next.js SSR because pdfjs-dist's canvas.js evaluates
+// `new DOMMatrix()` at the top of the file, which does not exist in Node.js.
+// We use a dynamic import() inside the async function instead.
 import { nanoid } from "nanoid";
 import { Page, Layer } from "../../store/useCanvasStore";
-
-// Initialize the worker globally via CDN to avoid Next.js build issues with binary workers
-if (typeof window !== "undefined" && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-}
 
 export type ExtractedPdfData = {
   pages: Page[];
@@ -20,6 +18,12 @@ export async function extractPdfPages(
   pdfBytes: Uint8Array,
   fileName: string = "Document",
 ): Promise<ExtractedPdfData> {
+  // Dynamic import — pdfjs-dist must only run in the browser (DOMMatrix not in Node.js)
+  const pdfjsLib = await import("pdfjs-dist");
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  }
+
   const loadingTask = pdfjsLib.getDocument(pdfBytes);
   const pdf = await loadingTask.promise;
   const numPages = pdf.numPages;
@@ -38,6 +42,14 @@ export async function extractPdfPages(
 
     canvas.width = viewport.width;
     canvas.height = viewport.height;
+
+    // CRITICAL FIX: Fill the canvas with white before rendering the PDF.
+    // If we don't do this, transparent areas in the PDF remain transparent
+    // on the canvas, and when converted to JPEG (which doesn't support alpha),
+    // they turn solid black. This caused text extraction to sample "black"
+    // as the background color, resulting in black boxes behind text on export.
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const renderContext: any = {
       canvasContext: ctx,
