@@ -10,7 +10,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { uploadToDrive, createDriveFolder, fetchDriveItems, type DriveItem } from "@/app/actions/drive";
+import {
+  uploadToDrive,
+  createDriveFolder,
+  fetchDriveItems,
+  type DriveItem,
+} from "@/app/actions/drive";
 import {
   ArrowLeft,
   Check,
@@ -49,9 +54,9 @@ export function UploadToDriveModal({
   // Folder Browsing State
   const [folders, setFolders] = useState<DriveItem[]>([]);
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
-  const [folderHistory, setFolderHistory] = useState<{ id: string; name: string }[]>([
-    { id: "root", name: "My Drive" },
-  ]);
+  const [folderHistory, setFolderHistory] = useState<
+    { id: string; name: string }[]
+  >([{ id: "root", name: "My Drive" }]);
 
   const worker = usePDFWorker();
 
@@ -62,9 +67,9 @@ export function UploadToDriveModal({
     const fetchFolders = async () => {
       setIsLoadingFolders(true);
       try {
-        const items = await fetchDriveItems(parentFolderId);
+        const response = await fetchDriveItems(parentFolderId);
         if (isMounted) {
-          setFolders(items.filter((i) => i.isFolder));
+          setFolders(response.files.filter((i) => i.isFolder));
         }
       } catch (err) {
         console.error("Failed to load folders", err);
@@ -212,16 +217,22 @@ export function UploadToDriveModal({
                       }
                     />
                   </div>
-                  
+
                   {/* Folder Browser */}
                   <div className="border border-slate-200 rounded-lg bg-white overflow-hidden flex flex-col h-48">
                     {/* Breadcrumbs */}
                     <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center gap-1 overflow-x-auto whitespace-nowrap custom-scrollbar">
                       {folderHistory.map((hist, idx) => (
-                        <div key={hist.id} className="flex items-center text-xs">
+                        <div
+                          key={hist.id}
+                          className="flex items-center text-xs"
+                        >
                           <button
                             onClick={() => {
-                              const newHistory = folderHistory.slice(0, idx + 1);
+                              const newHistory = folderHistory.slice(
+                                0,
+                                idx + 1,
+                              );
                               setFolderHistory(newHistory);
                               setParentFolderId(hist.id);
                             }}
@@ -257,13 +268,18 @@ export function UploadToDriveModal({
                             <button
                               key={f.id}
                               onClick={() => {
-                                setFolderHistory([...folderHistory, { id: f.id, name: f.name }]);
+                                setFolderHistory([
+                                  ...folderHistory,
+                                  { id: f.id, name: f.name },
+                                ]);
                                 setParentFolderId(f.id);
                               }}
                               className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-md text-left transition-colors group"
                             >
                               <Folder className="w-4 h-4 text-amber-400 shrink-0 group-hover:text-amber-500" />
-                              <span className="text-sm text-slate-700 truncate">{f.name}</span>
+                              <span className="text-sm text-slate-700 truncate">
+                                {f.name}
+                              </span>
                             </button>
                           ))}
                         </div>

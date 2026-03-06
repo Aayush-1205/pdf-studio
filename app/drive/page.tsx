@@ -32,6 +32,7 @@ interface BreadcrumbItem {
 export default function DrivePage() {
   const router = useRouter();
   const [items, setItems] = useState<DriveItem[]>([]);
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [importingId, setImportingId] = useState<string | null>(null);
@@ -48,8 +49,9 @@ export default function DrivePage() {
     setIsLoading(true);
     setError(null);
     try {
-      const driveItems = await fetchDriveItems(folderId);
-      setItems(driveItems);
+      const response = await fetchDriveItems(folderId);
+      setItems(response.files);
+      setNextPageToken(response.nextPageToken);
     } catch (err) {
       console.error(err);
       setError(

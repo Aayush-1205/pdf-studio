@@ -82,7 +82,7 @@ export default function LeftSidebar() {
     setIsAuthError(false);
     try {
       const driveItems = await fetchDriveItems(folderId);
-      setItems(driveItems);
+      setItems(driveItems.files);
     } catch (err: any) {
       console.error(err);
       const message = err?.message || "Failed to load files from Google Drive.";

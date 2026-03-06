@@ -13,11 +13,13 @@ import {
   Minus,
   ArrowUpRight,
   Loader2,
+  CloudUpload,
 } from "lucide-react";
 import { useState } from "react";
 import { usePDFWorker } from "../../hooks/usePDFWorker";
 import { generateBakedPDF } from "../../hooks/useExportPDF";
 import { RenameExportModal } from "../pdf/RenameExportModal";
+import { UploadToDriveModal } from "../pdf/UploadToDriveModal";
 
 export default function BottomToolbar() {
   const { mode, setMode } = useCanvasStore(
@@ -29,6 +31,7 @@ export default function BottomToolbar() {
   const worker = usePDFWorker();
   const [isExporting, setIsExporting] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   const isPointer =
     mode === CanvasMode.None ||
@@ -166,6 +169,16 @@ export default function BottomToolbar() {
 
       <div className="flex items-center gap-2 pl-4 pr-2 border-l border-gray-200 ml-2">
         <button
+          onClick={() => setIsUploadModalOpen(true)}
+          disabled={!worker}
+          className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-2 rounded-xl text-sm font-medium transition-colors border border-emerald-200/50 shadow-sm disabled:opacity-50"
+          title="Upload to Google Drive"
+        >
+          <CloudUpload size={16} />
+          <span className="hidden sm:inline">Save to Drive</span>
+        </button>
+
+        <button
           onClick={handleExport}
           disabled={isExporting || !worker}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
@@ -184,6 +197,13 @@ export default function BottomToolbar() {
         onClose={() => setIsRenameModalOpen(false)}
         onExport={executeExport}
       />
+
+      {isUploadModalOpen && (
+        <UploadToDriveModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

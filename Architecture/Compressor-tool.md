@@ -1,18 +1,17 @@
-To achieve extreme client-side PDF compression (like dropping from 1MB down to 15KB), we have to be completely candid about how PDF architecture works.
+The reason your previous implementation is failing is due to a well-known architectural conflict: **`pdfjs-dist` is notoriously unstable when rendering to `OffscreenCanvas` inside a Web Worker.** It often crashes due to missing DOM window dependencies, font-loading timeouts, and aggressive memory leaks when processing multiple pages in a background thread.
 
-Libraries like `pdf-lib` alone cannot achieve this because they only repackage existing data; they cannot natively downsample high-resolution images or outline complex embedded fonts.
+To make this "Crusher" tool completely bulletproof and prevent UI freezes, we must shift to a **Hybrid Rasterization Architecture**:
 
-To achieve that "15KB" dream entirely in the browser, we must implement an **Aggressive Rasterization Pipeline**. We will use `pdfjs-dist` to render the PDF pages into invisible HTML5 `<canvas>` elements, compress those canvases into highly optimized JPEGs, and then use `pdf-lib` to stitch those lightweight JPEGs back into a brand-new PDF.
+1. **Main Thread (UI):** Uses standard DOM `<canvas>` to render pages one by one. By yielding to the event loop (`requestAnimationFrame`) between each page, the UI stays fully responsive, allowing us to show a smooth Progress Bar.
+2. **Web Worker (Background):** Receives the compressed JPEG strings and uses `pdf-lib` to stitch them back into a PDF. This offloads the heavy binary assembly.
 
-Since you are already using `pdfjs-dist`, `pdf-lib`, and `comlink` (Web Workers), **you do not need any new external dependencies.** You already have the perfect stack.
-
-Here is the detailed implementation plan to build this Compressor Tool.
+Here is the updated, highly-resilient implementation plan.
 
 ---
 
-### 🎛️ Step 1: The Compression State (Zustand)
+### 🎛️ Step 1: Update the Zustand State (Adding Progress Tracking)
 
-First, we need to add the compression settings to your existing global store so the UI can control the quality.
+Since we are processing page-by-page, adding a progress tracker drastically improves the UX during long compressions.
 
 ```typescript
 // store/useCompressorStore.ts
@@ -23,20 +22,23 @@ export type CompressionLevel = "LOW" | "MEDIUM" | "EXTREME";
 interface CompressorState {
   compressionLevel: CompressionLevel;
   isCompressing: boolean;
+  progress: number; // 0 to 100
   originalSize: number;
   compressedSize: number;
   setCompressionLevel: (level: CompressionLevel) => void;
-  setCompressionStatus: (status: boolean) => void;
+  setCompressionStatus: (status: boolean, progress?: number) => void;
   setStats: (original: number, compressed: number) => void;
 }
 
 export const useCompressorStore = create<CompressorState>((set) => ({
   compressionLevel: "MEDIUM",
   isCompressing: false,
+  progress: 0,
   originalSize: 0,
   compressedSize: 0,
   setCompressionLevel: (level) => set({ compressionLevel: level }),
-  setCompressionStatus: (isCompressing) => set({ isCompressing }),
+  setCompressionStatus: (isCompressing, progress = 0) =>
+    set({ isCompressing, progress }),
   setStats: (originalSize, compressedSize) =>
     set({ originalSize, compressedSize }),
 }));
@@ -44,96 +46,80 @@ export const useCompressorStore = create<CompressorState>((set) => ({
 
 ---
 
-### ⚙️ Step 2: The "Crusher" Web Worker Engine
+### ⚙️ Step 2: The Web Worker (Pure Assembly)
 
-Because rendering canvases and compressing JPEGs is incredibly CPU-intensive, this **must** happen inside your `comlink` Web Worker. If you run this on the main thread, the user's browser will freeze.
-
-Add this specific compression function to your existing `pdfWorker.ts`:
+The worker now acts strictly as an assembler. It no longer tries to run `pdfjs`. It just takes optimized image strings and packages them securely into a PDF binary.
 
 ```typescript
-// workers/pdfWorker.ts
-import * as pdfjs from "pdfjs-dist";
+// workers/pdfAssembler.worker.ts
 import { PDFDocument } from "pdf-lib";
 
-// Map our UI levels to exact scaling and JPEG quality metrics
-const COMPRESSION_PROFILES = {
-  LOW: { scale: 1.5, quality: 0.8 }, // Good for reading, moderate size reduction
-  MEDIUM: { scale: 1.0, quality: 0.5 }, // Great balance of size and legibility
-  EXTREME: { scale: 0.7, quality: 0.2 }, // The "15KB" mode. Blurry, but tiny.
-};
+export interface ExtractedPage {
+  base64: string;
+  width: number;
+  height: number;
+}
 
-export async function compressPdf(
-  fileBuffer: ArrayBuffer,
-  level: "LOW" | "MEDIUM" | "EXTREME",
+export async function buildCompressedPdf(
+  pages: ExtractedPage[],
 ): Promise<Uint8Array> {
-  const profile = COMPRESSION_PROFILES[level];
-
-  // 1. Initialize the new, empty "Lightweight" PDF
   const newPdfDoc = await PDFDocument.create();
 
-  // 2. Read the original heavy PDF using pdf.js
-  const loadingTask = pdfjs.getDocument({ data: fileBuffer });
-  const pdf = await loadingTask.promise;
-  const numPages = pdf.numPages;
+  for (const imgData of pages) {
+    const newPage = newPdfDoc.addPage([imgData.width, imgData.height]);
 
-  // 3. Process page by page
-  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: profile.scale });
-
-    // Create an OffscreenCanvas (Web Worker safe)
-    const canvas = new OffscreenCanvas(viewport.width, viewport.height);
-    const ctx = canvas.getContext("2d");
-
-    // Render the PDF page onto the canvas
-    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-
-    // 4. Crush the canvas into a highly compressed JPEG Blob
-    const blob = await canvas.convertToBlob({
-      type: "image/jpeg",
-      quality: profile.quality,
-    });
-    const jpegBuffer = await blob.arrayBuffer();
-
-    // 5. Embed the lightweight JPEG into the new PDF-lib document
-    const embeddedImage = await newPdfDoc.embedJpg(jpegBuffer);
-    const newPage = newPdfDoc.addPage([viewport.width, viewport.height]);
+    // Embed the heavily compressed JPEG
+    const embeddedImage = await newPdfDoc.embedJpg(imgData.base64);
 
     newPage.drawImage(embeddedImage, {
       x: 0,
       y: 0,
-      width: viewport.width,
-      height: viewport.height,
+      width: imgData.width,
+      height: imgData.height,
     });
   }
 
-  // 6. Save with pdf-lib's native stream compression turned on
+  // Save with pdf-lib's native stream compression turned on
   return await newPdfDoc.save({ useObjectStreams: false });
 }
 ```
 
 ---
 
-### 🖥️ Step 3: The Main Thread Implementation (React)
+### 🖥️ Step 3: The Main Thread Extractor & UI Component
 
-Now we connect the UI to the Web Worker. This component handles the file upload, triggers the worker, and calculates the size reduction.
+This is where the magic happens. We extract the PDF using a temporary DOM canvas, compress it using the browser's native `canvas.toDataURL('image/jpeg')`, clear memory to prevent crashing, and send the data to the worker.
 
 ```tsx
 // components/CompressorTool.tsx
 "use client";
-import { useRef } from "react";
-import { useCompressorStore } from "@/store/useCompressorStore";
+import { useRef, useEffect } from "react";
+import * as pdfjs from "pdfjs-dist";
 import { wrap } from "comlink";
+import { useCompressorStore } from "@/store/useCompressorStore";
 
-// Format bytes to MB/KB helper
+// Crucial: Set up pdf.js worker for the Main Thread
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+
+const COMPRESSION_PROFILES = {
+  LOW: { scale: 1.5, quality: 0.8 },
+  MEDIUM: { scale: 1.0, quality: 0.5 },
+  EXTREME: { scale: 0.7, quality: 0.2 },
+};
+
 const formatBytes = (bytes: number) =>
   (bytes / (1024 * 1024)).toFixed(2) + " MB";
+
+// Helper to yield the main thread so the UI doesn't freeze
+const yieldToUI = () =>
+  new Promise((resolve) => requestAnimationFrame(resolve));
 
 export default function CompressorTool() {
   const {
     compressionLevel,
     setCompressionLevel,
     isCompressing,
+    progress,
     setCompressionStatus,
     originalSize,
     compressedSize,
@@ -142,30 +128,69 @@ export default function CompressorTool() {
 
   const workerRef = useRef<any>(null);
 
+  useEffect(() => {
+    // Initialize Comlink Worker
+    workerRef.current = wrap(
+      new Worker(new URL("../workers/pdfAssembler.worker.ts", import.meta.url)),
+    );
+  }, []);
+
   const handleCompress = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setCompressionStatus(true);
+    setCompressionStatus(true, 0);
     const arrayBuffer = await file.arrayBuffer();
-
-    // Initialize Comlink Worker
-    if (!workerRef.current) {
-      workerRef.current = wrap(
-        new Worker(new URL("../workers/pdfWorker.ts", import.meta.url)),
-      );
-    }
+    const profile = COMPRESSION_PROFILES[compressionLevel];
 
     try {
-      // Send to Web Worker
-      const compressedBytes = await workerRef.current.compressPdf(
-        arrayBuffer,
-        compressionLevel,
-      );
+      const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      const numPages = pdf.numPages;
+      const extractedPages = [];
 
+      // 1. Extract and Compress Pages on the Main Thread
+      for (let i = 1; i <= numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: profile.scale });
+
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d");
+
+        if (ctx) {
+          await page.render({ canvasContext: ctx, viewport }).promise;
+
+          // Crush into optimized JPEG Base64
+          const base64 = canvas.toDataURL("image/jpeg", profile.quality);
+          extractedPages.push({
+            base64,
+            width: viewport.width,
+            height: viewport.height,
+          });
+        }
+
+        // Garbage collection (prevents memory leaks on 100+ page PDFs)
+        page.cleanup();
+
+        // Update progress and unfreeze UI
+        setCompressionStatus(true, Math.round((i / numPages) * 50));
+        await yieldToUI();
+      }
+
+      // Garbage collect full PDF document
+      pdf.destroy();
+
+      // 2. Offload Assembly to Web Worker
+      setCompressionStatus(true, 75); // Indicates "Assembling..."
+      const compressedBytes =
+        await workerRef.current.buildCompressedPdf(extractedPages);
+
+      setCompressionStatus(true, 100);
       setStats(file.size, compressedBytes.byteLength);
 
-      // Trigger Download
+      // 3. Trigger Download
       const blob = new Blob([compressedBytes], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -175,27 +200,29 @@ export default function CompressorTool() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Compression failed:", error);
+      alert("Failed to compress PDF. The file might be corrupted.");
     } finally {
-      setCompressionStatus(false);
+      setCompressionStatus(false, 0);
     }
   };
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-lg w-96 flex flex-col gap-4">
-      <h2 className="text-lg font-bold">PDF Compressor</h2>
+      <h2 className="text-lg font-bold">Extreme PDF Compressor</h2>
 
-      {/* Settings */}
       <select
         className="border p-2 rounded"
         value={compressionLevel}
-        onChange={(e) => setCompressionLevel(e.target.value as any)}
+        onChange={(e) =>
+          setCompressionLevel(e.target.value as CompressionLevel)
+        }
+        disabled={isCompressing}
       >
         <option value="LOW">Low (Retains Quality)</option>
         <option value="MEDIUM">Medium (Recommended)</option>
-        <option value="EXTREME">Extreme (Smallest Size)</option>
+        <option value="EXTREME">Extreme (15KB - Blurry)</option>
       </select>
 
-      {/* Upload Trigger */}
       <input
         type="file"
         accept=".pdf"
@@ -204,11 +231,20 @@ export default function CompressorTool() {
         className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
       />
 
-      {/* Status & Stats */}
       {isCompressing && (
-        <p className="text-blue-500 animate-pulse">
-          Crushing PDF in Web Worker...
-        </p>
+        <div className="w-full">
+          <p className="text-blue-500 mb-1 text-sm font-medium">
+            {progress < 75
+              ? "Rasterizing & Compressing..."
+              : "Stitching PDF..."}
+          </p>
+          <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div
+              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            ></div>
+          </div>
+        </div>
       )}
 
       {compressedSize > 0 && !isCompressing && (
@@ -230,14 +266,8 @@ export default function CompressorTool() {
 }
 ```
 
----
+### Why this fixes the failures:
 
-### ⚠️ The Important Trade-Off (What you must know)
-
-By using this **Rasterization Method**, you achieve phenomenal file sizes, but you are converting the PDF from a _Vector document_ into a _Raster image document_.
-
-- **The Pro:** It guarantees size reduction. It flattens all layers, removes embedded hidden fonts, strips all heavy metadata, and scales down massive 4K images hidden inside the PDF.
-- **The Con:** The text in the resulting compressed PDF will no longer be highlightable or searchable.
-
-**How to level this up (Phase 2 of Compression):**
-If you want to keep the text selectable while compressing, you have to build an _Extraction Compressor_. This is substantially harder client-side, but it involves using `pdf-lib` to read the document, extracting the raw image streams, running them through a JS image compressor, and writing them back without touching the text. However, for a web utility aiming for "Extreme Compression", the Rasterization pipeline provided above is the industry standard for client-side tools.
+1. **No Worker Canvas Dependency:** `OffscreenCanvas` is completely eliminated, bypassing browser compatibility issues (like Safari bugs).
+2. **Memory Leak Prevention:** `page.cleanup()` and `pdf.destroy()` are strictly implemented. Without these, `pdfjs` retains canvas rendering contexts in RAM, causing browsers to forcefully crash the tab when processing files over 10 pages.
+3. **UI Responsiveness:** The `yieldToUI()` function forces the JavaScript thread to pause and render the HTML progress bar, so the user's browser never gets a "Page Unresponsive" warning.

@@ -1060,64 +1060,6 @@ async function resizePdfPages(
   return newPdf.save();
 }
 
-// ── Compression Engine ──────────────────────────────────────────────
-
-const COMPRESSION_PROFILES = {
-  LOW: { scale: 1.5, quality: 0.8 },
-  MEDIUM: { scale: 1.0, quality: 0.5 },
-  EXTREME: { scale: 0.7, quality: 0.2 },
-};
-
-async function compressPdf(
-  fileBuffer: Uint8Array,
-  level: "LOW" | "MEDIUM" | "EXTREME",
-): Promise<Uint8Array> {
-  const profile = COMPRESSION_PROFILES[level];
-  const newPdfDoc = await PDFDocument.create();
-
-  // Fix Compressor Tool Failure: Explicitly set workerSrc
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-
-  // Create a raw slice so as to not mutate underlying memory if referenced
-  const loadingTask = pdfjsLib.getDocument({
-    data: fileBuffer.slice(0),
-    standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
-  });
-  const pdf = await loadingTask.promise;
-  const numPages = pdf.numPages;
-
-  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: profile.scale });
-
-    const canvas = new OffscreenCanvas(viewport.width, viewport.height);
-    const ctx = canvas.getContext("2d");
-
-    if (ctx) {
-      const renderContext: any = { canvasContext: ctx, viewport: viewport };
-      await page.render(renderContext).promise;
-
-      const blob = await canvas.convertToBlob({
-        type: "image/jpeg",
-        quality: profile.quality,
-      });
-      const jpegBuffer = await blob.arrayBuffer();
-
-      const embeddedImage = await newPdfDoc.embedJpg(jpegBuffer);
-      const newPage = newPdfDoc.addPage([viewport.width, viewport.height]);
-
-      newPage.drawImage(embeddedImage, {
-        x: 0,
-        y: 0,
-        width: viewport.width,
-        height: viewport.height,
-      });
-    }
-  }
-
-  return await newPdfDoc.save({ useObjectStreams: false });
-}
-
 // ── Method dispatch map ─────────────────────────────────────────────
 
 const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
@@ -1251,8 +1193,6 @@ const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
       c as Array<{ pdfPageIndex: number }> | undefined,
       d as Uint8Array | undefined,
     ),
-  compressPdf: (a: unknown, b: unknown) =>
-    compressPdf(a as Uint8Array, b as "LOW" | "MEDIUM" | "EXTREME"),
   resizePdfPages: (a: unknown, b: unknown, c: unknown, d: unknown) =>
     resizePdfPages(a as Uint8Array, b as number, c as number, d as number[]),
 };

@@ -179,16 +179,33 @@ export type DriveItem = {
 
 export async function fetchDriveItems(
   folderId: string = "root",
-): Promise<DriveItem[]> {
+  pageToken?: string,
+  searchQuery?: string,
+  sharedWithMe: boolean = false,
+): Promise<{ files: DriveItem[]; nextPageToken: string | null }> {
   try {
     const drive = await getDriveClient();
 
+    let q = `trashed=false and (mimeType='application/vnd.google-apps.folder' or mimeType='application/pdf')`;
+
+    if (sharedWithMe) {
+      q += ` and sharedWithMe=true`;
+    } else if (searchQuery) {
+      q += ` and name contains '${searchQuery}'`;
+    } else {
+      q += ` and '${folderId}' in parents`;
+    }
+
     const response = await drive.files.list({
-      q: `'${folderId}' in parents and trashed=false and (mimeType='application/vnd.google-apps.folder' or mimeType='application/pdf')`,
+      q,
       fields:
-        "files(id, name, mimeType, thumbnailLink, size, createdTime, modifiedTime, parents)",
+        "nextPageToken, files(id, name, mimeType, thumbnailLink, size, createdTime, modifiedTime, parents)",
       orderBy: "folder,name",
-      pageSize: 100,
+      pageSize: 50,
+      pageToken: pageToken || undefined,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      corpora: "user",
     });
 
     const files =
@@ -197,7 +214,7 @@ export async function fetchDriveItems(
         isFolder: f.mimeType === "application/vnd.google-apps.folder",
       })) || [];
 
-    return files;
+    return { files, nextPageToken: response.data.nextPageToken || null };
   } catch (error: any) {
     console.error("[Drive API] Failed to fetch items:", error?.message);
     throw new Error(
