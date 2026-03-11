@@ -12,6 +12,8 @@ import {
   downloadDrivePdf,
   DriveItem,
 } from "../../app/actions/drive";
+import { generateBakedPDF } from "../../hooks/useExportPDF";
+import { usePDFWorker } from "../../hooks/usePDFWorker";
 import { extractPdfPages } from "../../app/lib/pdfRender";
 import { nanoid } from "nanoid";
 import { createPortal } from "react-dom";
@@ -111,6 +113,7 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
     pageIndex: number;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const worker = usePDFWorker();
 
   // Drive Picker State
   const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
@@ -123,8 +126,8 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
   const loadDriveItems = async (folderId: string) => {
     setDriveLoading(true);
     try {
-      const items = await fetchDriveItems(folderId);
-      setDriveItems(items);
+      const response = await fetchDriveItems(folderId);
+      setDriveItems(response.files);
     } catch (e) {
       console.error(e);
     }
@@ -234,6 +237,23 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
     } catch (err) {
       console.error("Error fetching from Drive:", err);
       alert("Failed to download file from Google Drive.");
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAddCurrentDocument = async () => {
+    if (!worker) return;
+    setIsProcessing(true);
+    try {
+      const blob = await generateBakedPDF(worker);
+      const file = new File([blob], "Current_Editor_Doc.pdf", {
+        type: "application/pdf",
+      });
+      await addFilesToMerge([file]);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to capture current document.");
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -358,7 +378,6 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
               </p>
               <p className="text-xs text-indigo-500 mt-1">From your computer</p>
             </div>
-
             <div
               className="border-2 border-slate-200 bg-white rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-colors"
               onClick={() => setIsDrivePickerOpen(true)}
@@ -382,6 +401,33 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
                 Google Drive
               </p>
               <p className="text-xs text-blue-500 mt-1">Pick from cloud</p>
+            </div>
+
+            <div
+              className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
+                worker
+                  ? "border-emerald-200 bg-emerald-50/30 hover:bg-emerald-50/80"
+                  : "border-slate-100 bg-slate-50 cursor-not-allowed opacity-50"
+              }`}
+              onClick={handleAddCurrentDocument}
+            >
+              <div
+                className={`w-12 h-12 rounded-full flex items-center justify-center mb-3 ${
+                  worker
+                    ? "bg-emerald-100 text-emerald-600"
+                    : "bg-slate-100 text-slate-400"
+                }`}
+              >
+                <CheckCircle2 size={24} />
+              </div>
+              <p
+                className={`text-sm font-semibold ${worker ? "text-emerald-900" : "text-slate-400"}`}
+              >
+                Current Editor PDF
+              </p>
+              <p className="text-[10px] uppercase font-black text-emerald-600/60 tracking-widest mt-2">
+                Already Open
+              </p>
             </div>
           </div>
 

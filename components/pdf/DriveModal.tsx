@@ -21,7 +21,8 @@ import {
   X,
   Users,
 } from "lucide-react";
-import { usePDFStore } from "@/app/store/usePDFStore";
+import { useCanvasStore } from "@/store/useCanvasStore";
+import { nanoid } from "nanoid";
 import { useRouter } from "next/navigation";
 
 interface BreadcrumbItem {
@@ -49,7 +50,6 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
     { id: "root", name: "My Drive" },
   ]);
 
-  const { saveToStorage, loadFromStorage } = usePDFStore();
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
@@ -165,9 +165,35 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
       for (let i = 0; i < binary.length; i++) {
         array[i] = binary.charCodeAt(i);
       }
-      const blob = new Blob([array], { type: "application/pdf" });
+      const store = useCanvasStore.getState();
+      store.setPdfBytes(array);
 
-      await saveToStorage(blob);
+      try {
+        const { extractPdfPages } = await import("@/app/lib/pdfRender");
+        const { pages, layers: extractedLayers } = await extractPdfPages(
+          new Uint8Array(array),
+          file.name,
+        );
+
+        store.setPages(pages);
+
+        // Bulk insert extracted text layers
+        const newLayersDict: Record<string, any> = {};
+        const newLayerIds: string[] = [];
+        extractedLayers.forEach((l) => {
+          const lid = nanoid();
+          newLayersDict[lid] = l;
+          newLayerIds.push(lid);
+        });
+
+        useCanvasStore.setState({
+          layers: newLayersDict,
+          layerIds: newLayerIds,
+          selection: [],
+        });
+      } catch (e) {
+        console.error("Failed to extract pages:", e);
+      }
 
       sessionStorage.setItem(
         "drive_origin",
@@ -178,7 +204,6 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
         }),
       );
 
-      await loadFromStorage();
       onClose();
       // Only push if we're not already on the editor page
       if (!window.location.pathname.includes("/editor")) {

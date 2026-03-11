@@ -18,17 +18,11 @@ import {
   FileArchive,
   Maximize2,
 } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { UploadToDriveModal } from "../pdf/UploadToDriveModal";
 import { MergePDFModal } from "../pdf/MergePDFModal";
 import { CompressorModal } from "../pdf/CompressorModal";
 import { PageResizeModal } from "../pdf/PageResizeModal";
-import {
-  fetchDriveItems,
-  downloadDrivePdf,
-  type DriveItem,
-} from "@/app/actions/drive";
-import { getGoogleDriveAuthUrl } from "@/app/actions/googleAuth";
 import { nanoid } from "nanoid";
 
 interface BreadcrumbItem {
@@ -54,8 +48,8 @@ export default function LeftSidebar() {
       deleteLayers: state.deleteLayers,
     })),
   );
-  const [activeTab, setActiveTab] = useState<"drive" | "pages" | "layers">(
-    "drive",
+  const [activeTab, setActiveTab] = useState<"preview" | "pages" | "layers">(
+    "preview",
   );
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
@@ -64,123 +58,6 @@ export default function LeftSidebar() {
   const [insertIndex, setInsertIndex] = useState<number | string>("end");
   const [customInterval, setCustomInterval] = useState<number>(1);
 
-  // Drive API State
-  const [items, setItems] = useState<DriveItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isAuthError, setIsAuthError] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([
-    { id: "root", name: "My Drive" },
-  ]);
-
-  const currentFolderId = breadcrumbs[breadcrumbs.length - 1].id;
-
-  const loadItems = useCallback(async (folderId: string) => {
-    setIsLoading(true);
-    setError(null);
-    setIsAuthError(false);
-    try {
-      const driveItems = await fetchDriveItems(folderId);
-      setItems(driveItems.files);
-    } catch (err: any) {
-      console.error(err);
-      const message = err?.message || "Failed to load files from Google Drive.";
-      setError(message);
-      // Detect auth-specific failures
-      if (
-        message.toLowerCase().includes("authenticate") ||
-        message.toLowerCase().includes("sign in") ||
-        message.toLowerCase().includes("permission") ||
-        message.toLowerCase().includes("refresh token")
-      ) {
-        setIsAuthError(true);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Fetch when tab switches to Drive
-  useEffect(() => {
-    if (activeTab === "drive") {
-      setBreadcrumbs([{ id: "root", name: "My Drive" }]);
-      loadItems("root");
-    }
-  }, [activeTab, loadItems]);
-
-  const navigateToFolder = (folder: DriveItem) => {
-    setBreadcrumbs((prev) => [...prev, { id: folder.id, name: folder.name }]);
-    loadItems(folder.id);
-  };
-
-  const navigateToBreadcrumb = (index: number) => {
-    const newBreadcrumbs = breadcrumbs.slice(0, index + 1);
-    setBreadcrumbs(newBreadcrumbs);
-    loadItems(newBreadcrumbs[newBreadcrumbs.length - 1].id);
-  };
-
-  const handleImport = async (file: DriveItem) => {
-    setDownloadingId(file.id);
-    setError(null);
-    try {
-      const dataUrl = await downloadDrivePdf(file.id);
-      const base64 = dataUrl.split(",")[1];
-      const binary = atob(base64);
-      const array = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        array[i] = binary.charCodeAt(i);
-      }
-
-      const store = useCanvasStore.getState();
-
-      store.setPdfBytes(array);
-
-      try {
-        const { extractPdfPages } = await import("@/app/lib/pdfRender");
-        // We MUST pass a cloned Uint8Array here. pdfjs-dist often transfers the buffer to its worker,
-        // effectively detaching it from the main thread and crashing future exports!
-        const { pages, layers } = await extractPdfPages(
-          new Uint8Array(array),
-          file.name,
-        );
-
-        store.setPages(pages);
-
-        // Bulk insert extracted text layers
-        const newLayersDict: Record<string, any> = {};
-        const newLayerIds: string[] = [];
-        layers.forEach((l) => {
-          const lid = nanoid();
-          newLayersDict[lid] = l;
-          newLayerIds.push(lid);
-        });
-
-        useCanvasStore.setState({
-          layers: newLayersDict,
-          layerIds: newLayerIds,
-          selection: [],
-        });
-      } catch (e) {
-        console.error("Failed to extract pages:", e);
-      }
-
-      sessionStorage.setItem(
-        "drive_origin",
-        JSON.stringify({
-          fileId: file.id,
-          fileName: file.name,
-          parentFolderId: currentFolderId,
-        }),
-      );
-    } catch (err) {
-      console.error("Import error:", err);
-      setError(`Failed to import "${file.name}". Please try again.`);
-    } finally {
-      setDownloadingId(null);
-    }
-  };
-
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return "";
     return new Intl.DateTimeFormat("en-US", {
@@ -188,9 +65,6 @@ export default function LeftSidebar() {
       day: "numeric",
     }).format(new Date(dateStr));
   };
-
-  const folders = items.filter((i) => i.isFolder);
-  const pdfs = items.filter((i) => !i.isFolder);
 
   // Dynamically build page presets — prepend "Same as Document" if pages exist
   const firstPage = pagesList[0];
@@ -214,12 +88,16 @@ export default function LeftSidebar() {
     <>
       <div className="absolute top-16 left-4 w-72 h-[calc(100vh-120px)] bg-white/90 backdrop-blur-md border border-gray-200/50 shadow-2xl rounded-2xl flex flex-col pointer-events-auto transition-all">
         {/* Tabs */}
-        <div className="flex border-b overflow-x-auto">
+        <div className="flex border-b overflow-x-auto shrink-0">
           <button
-            onClick={() => setActiveTab("drive")}
-            className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === "drive" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+            onClick={() => setActiveTab("preview")}
+            className={`flex-1 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+              activeTab === "preview"
+                ? "text-blue-600 border-b-2 border-blue-600"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
           >
-            Google Drive
+            Preview
           </button>
           <button
             onClick={() => setActiveTab("pages")}
@@ -255,215 +133,11 @@ export default function LeftSidebar() {
         )}
 
         <div className="p-4 flex-1 overflow-y-auto custom-scrollbar flex flex-col">
-          {activeTab === "drive" && (
-            <div className="flex flex-col h-full space-y-4">
-              <div className="flex flex-col items-center gap-3 shrink-0">
-                <button
-                  onClick={() => setIsUploadModalOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
-                >
-                  <FileUp size={16} /> Upload Edits to Drive
-                </button>
-              </div>
-
-              {/* Drive Built-In File Explorer */}
-              <div className="flex flex-col flex-1 border border-gray-200 rounded-xl overflow-hidden bg-white/50 shadow-inner">
-                <div className="bg-gray-50 p-2 border-b text-xs flex items-center gap-1 overflow-x-auto whitespace-nowrap custom-scrollbar shrink-0">
-                  {breadcrumbs.map((crumb, i) => (
-                    <div
-                      key={crumb.id}
-                      className="flex items-center gap-1 shrink-0"
-                    >
-                      {i > 0 && (
-                        <ChevronRight size={12} className="text-gray-400" />
-                      )}
-                      <button
-                        onClick={() => navigateToBreadcrumb(i)}
-                        className={`px-1.5 py-0.5 rounded transition-colors ${
-                          i === breadcrumbs.length - 1
-                            ? "text-blue-600 font-semibold bg-blue-50"
-                            : "text-gray-500 hover:bg-gray-200"
-                        }`}
-                      >
-                        {i === 0 && (
-                          <Home size={10} className="inline mr-1 mb-[2px]" />
-                        )}
-                        {crumb.name}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex-1 overflow-y-auto max-h-[40vh] custom-scrollbar p-1">
-                  {isLoading ? (
-                    <div className="flex flex-col items-center justify-center h-full text-blue-500 py-8">
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    </div>
-                  ) : error ? (
-                    <div className="flex flex-col items-center text-center p-4 gap-2">
-                      <AlertCircle className="w-6 h-6 text-red-400" />
-                      {isAuthError ? (
-                        <>
-                          <p className="text-[11px] font-semibold text-red-600">
-                            Google Drive: Auth Required
-                          </p>
-                          <p className="text-[10px] text-slate-500 leading-snug">
-                            Your Google token has expired or Drive scope was not
-                            granted.
-                          </p>
-                          <button
-                            onClick={async () => {
-                              try {
-                                const url = await getGoogleDriveAuthUrl();
-                                window.location.href = url;
-                              } catch {
-                                alert(
-                                  "Could not generate auth URL. Check CLIENT_ID is set.",
-                                );
-                              }
-                            }}
-                            className="mt-1 px-3 py-1.5 text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                          >
-                            Connect Google Drive
-                          </button>
-                        </>
-                      ) : (
-                        <p className="text-[10px] text-red-500">{error}</p>
-                      )}
-                      <button
-                        onClick={() => loadItems(currentFolderId)}
-                        className="text-[10px] text-blue-500 hover:underline"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  ) : items.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full py-8 text-gray-400">
-                      <Folder className="w-8 h-8 opacity-50 mb-2" />
-                      <span className="text-xs">Folder empty</span>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      {folders.map((f) => (
-                        <div
-                          key={f.id}
-                          onClick={() => navigateToFolder(f)}
-                          className="flex items-center p-2 hover:bg-blue-50 rounded-lg cursor-pointer group transition-colors"
-                        >
-                          <Folder className="w-4 h-4 text-amber-400 mr-2 shrink-0" />
-                          <span className="text-xs font-medium text-gray-700 truncate flex-1">
-                            {f.name}
-                          </span>
-                        </div>
-                      ))}
-                      {pdfs.map((f) => (
-                        <div
-                          key={f.id}
-                          className="flex items-center justify-between p-2 hover:bg-gray-100 rounded-lg cursor-pointer group transition-colors"
-                        >
-                          <div
-                            className="flex items-center overflow-hidden flex-1"
-                            onClick={() => handleImport(f)}
-                          >
-                            <FileText className="w-4 h-4 text-red-500 mr-2 shrink-0" />
-                            <div className="flex flex-col truncate">
-                              <span
-                                className="text-[11px] font-semibold text-gray-800 truncate"
-                                title={f.name}
-                              >
-                                {f.name}
-                              </span>
-                              <span className="text-[9px] text-gray-400">
-                                {formatDate(f.createdTime)}
-                              </span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleImport(f)}
-                            disabled={downloadingId === f.id}
-                            className="opacity-0 group-hover:opacity-100 p-1.5 bg-white shadow-sm border rounded-md text-blue-600 hover:bg-blue-50 transition-all shrink-0 ml-2 disabled:opacity-100"
-                          >
-                            {downloadingId === f.id ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Download size={12} />
-                            )}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          {activeTab === "preview" && <PagePreviewTab pages={pagesList} />}
 
           {activeTab === "pages" && (
             <div className="space-y-4">
               <h4 className="text-[10px] font-bold tracking-wider text-gray-400 uppercase mb-3 flex items-center gap-2">
-                <Layers size={12} /> Document Pages
-              </h4>
-
-              <div className="flex flex-col gap-2 max-h-[30vh] overflow-y-auto custom-scrollbar pr-1">
-                {pagesList.length === 0 ? (
-                  <div className="text-xs text-gray-400 text-center py-4">
-                    No pages yet. Import a PDF or add a blank page.
-                  </div>
-                ) : (
-                  pagesList.map((p, idx) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between p-2 bg-gray-50 border rounded-lg hover:border-blue-400 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-gray-600">
-                          Page {idx + 1}
-                        </span>
-                        {p.groupName && (
-                          <span className="text-[9px] px-1.5 py-0.5 bg-gray-200 text-gray-500 rounded truncate max-w-[80px]">
-                            {p.groupName}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() =>
-                            useCanvasStore
-                              .getState()
-                              .reorderPages(idx, Math.max(0, idx - 1))
-                          }
-                          className="p-1 hover:bg-gray-200 rounded text-gray-500"
-                        >
-                          ▲
-                        </button>
-                        <button
-                          onClick={() =>
-                            useCanvasStore
-                              .getState()
-                              .reorderPages(
-                                idx,
-                                Math.min(pagesList.length - 1, idx + 1),
-                              )
-                          }
-                          className="p-1 hover:bg-gray-200 rounded text-gray-500"
-                        >
-                          ▼
-                        </button>
-                        <button
-                          onClick={() =>
-                            useCanvasStore.getState().deletePage(idx)
-                          }
-                          className="p-1 text-red-500 hover:bg-red-50 rounded"
-                        >
-                          ⨉
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <h4 className="text-[10px] font-bold tracking-wider text-gray-400 uppercase mb-3 flex items-center gap-2 mt-4 pt-4 border-t">
                 <LayoutTemplate size={12} /> Add Blank Frame
               </h4>
               <div className="flex items-center gap-2 mb-3 bg-white border border-gray-200 p-1.5 rounded-lg">
@@ -738,5 +412,126 @@ export default function LeftSidebar() {
         onClose={() => setIsUploadModalOpen(false)}
       />
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PagePreviewTab
+// Renders thumbnail previews of each PDF page and scrolls the Konva canvas
+// to that page when clicked, by updating the camera.y state.
+// ---------------------------------------------------------------------------
+const PAGE_GAP = 40; // must stay in sync with Canvas.tsx
+
+function PagePreviewTab({ pages }: { pages: Array<any> }) {
+  const { camera, setCamera } = useCanvasStore(
+    useShallow((s) => ({ camera: s.camera, setCamera: s.setCamera })),
+  );
+
+  const pageOffsets = useMemo(() => {
+    let y = 0;
+    return pages.map((p) => {
+      const offset = y;
+      y += p.height + PAGE_GAP;
+      return offset;
+    });
+  }, [pages]);
+
+  const scrollToPage = (pageIndex: number) => {
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const page = pages[pageIndex];
+    const offsetY = pageOffsets[pageIndex];
+    const targetY =
+      viewportHeight / 2 - (offsetY + page.height / 2) * camera.zoom;
+    const targetX = viewportWidth / 2 - (page.width / 2) * camera.zoom;
+    setCamera({ ...camera, x: targetX, y: targetY });
+  };
+
+  if (pages.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12 text-gray-400">
+        <FileText size={40} className="text-gray-200" />
+        <p className="text-xs font-medium">No pages</p>
+        <p className="text-[11px] text-center text-gray-300 leading-snug">
+          Import a PDF or add a blank page.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-5 py-1">
+      {pages.map((page, idx) => (
+        <div key={page.id} className="group flex flex-col items-center gap-2">
+          {/* Thumbnail card */}
+          <div
+            className="relative w-full rounded-xl overflow-hidden border-2 border-transparent group-hover:border-blue-400 transition-all duration-150 shadow-md group-hover:shadow-lg cursor-pointer"
+            style={{ aspectRatio: `${page.width} / ${page.height}` }}
+            onClick={() => scrollToPage(idx)}
+          >
+            {page.backgroundUrl ? (
+              <img
+                src={page.backgroundUrl}
+                alt={`Page ${idx + 1}`}
+                className="w-full h-full object-cover"
+                draggable={false}
+              />
+            ) : (
+              <div className="w-full h-full bg-white flex items-center justify-center">
+                <FileText size={32} className="text-gray-200" />
+              </div>
+            )}
+
+            {/* Hover overlay - scroll hint */}
+            <div className="absolute inset-0 bg-blue-600/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+            {/* Page action buttons - top-right corner, visible on hover */}
+            <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  useCanvasStore
+                    .getState()
+                    .reorderPages(idx, Math.max(0, idx - 1));
+                }}
+                disabled={idx === 0}
+                className="w-7 h-7 flex items-center justify-center bg-white/90 hover:bg-white text-slate-600 hover:text-indigo-600 rounded-lg shadow-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
+                title="Move up"
+              >
+                ▲
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  useCanvasStore
+                    .getState()
+                    .reorderPages(idx, Math.min(pages.length - 1, idx + 1));
+                }}
+                disabled={idx === pages.length - 1}
+                className="w-7 h-7 flex items-center justify-center bg-white/90 hover:bg-white text-slate-600 hover:text-indigo-600 rounded-lg shadow-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold"
+                title="Move down"
+              >
+                ▼
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  useCanvasStore.getState().deletePage(idx);
+                }}
+                className="w-7 h-7 flex items-center justify-center bg-white/90 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg shadow-sm transition-colors text-xs font-bold"
+                title="Delete page"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {/* Page number */}
+          <span className="text-sm font-bold text-blue-600 tabular-nums group-hover:text-blue-700 transition-colors">
+            {idx + 1}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }

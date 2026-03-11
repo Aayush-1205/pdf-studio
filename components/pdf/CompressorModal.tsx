@@ -1,17 +1,28 @@
 "use client";
 
 import React, { useRef, useState, useEffect } from "react";
-import { X, Upload, FileArchive, Loader2, ArrowRight } from "lucide-react";
+import {
+  X,
+  Upload,
+  FileArchive,
+  Loader2,
+  ArrowRight,
+  Download,
+  HardDrive,
+} from "lucide-react";
 import { createPortal } from "react-dom";
 import { useCompressorStore } from "../../store/useCompressorStore";
 import { usePDFWorker } from "../../hooks/usePDFWorker";
 import { generateBakedPDF } from "../../hooks/useExportPDF";
-import * as pdfjs from "pdfjs-dist";
+// Redundant static import removed to fix SSR DOMMatrix crash
+// import * as pdfjs from "pdfjs-dist";
 import { wrap } from "comlink";
-
-// Set up pdf.js worker for the Main Thread
-// Using the same version as in package.json/pdf.worker.ts for consistency
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+import {
+  fetchDriveItems,
+  downloadDrivePdf,
+  DriveItem,
+} from "@/app/actions/drive";
+import { UploadToDriveModal } from "./UploadToDriveModal";
 
 const COMPRESSION_PROFILES = {
   LOW: { scale: 1.5, quality: 0.8 },
@@ -48,7 +59,18 @@ export function CompressorModal({
     setStats,
   } = useCompressorStore();
 
-  const [activeTab, setActiveTab] = useState<"current" | "external">("current");
+  const [activeTab, setActiveTab] = useState<"current" | "external" | "drive">(
+    "current",
+  );
+  const [lastCompressedBlob, setLastCompressedBlob] = useState<Blob | null>(
+    null,
+  );
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [driveItems, setDriveItems] = useState<DriveItem[]>([]);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveBreadcrumbs, setDriveBreadcrumbs] = useState([
+    { id: "root", name: "My Drive" },
+  ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorWorker = usePDFWorker();
   const assemblerWorkerRef = useRef<any>(null);
@@ -63,6 +85,23 @@ export function CompressorModal({
     }
   }, []);
 
+  const loadDriveItems = async (folderId: string) => {
+    setDriveLoading(true);
+    try {
+      const resp = await fetchDriveItems(folderId);
+      setDriveItems(resp.files);
+    } catch (e) {
+      console.error(e);
+    }
+    setDriveLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === "drive" && isOpen) {
+      loadDriveItems(driveBreadcrumbs[driveBreadcrumbs.length - 1].id);
+    }
+  }, [activeTab, isOpen, driveBreadcrumbs]);
+
   if (!isOpen) return null;
   if (typeof document === "undefined") return null;
 
@@ -70,6 +109,10 @@ export function CompressorModal({
     arrayBuffer: ArrayBuffer,
     fileName: string,
   ) => {
+    // Dynamic import to avoid SSR errors (DOMMatrix not in Node.js)
+    const pdfjs = await import("pdfjs-dist");
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
     const profile = COMPRESSION_PROFILES[compressionLevel];
     setCompressionStatus(true, 0);
 
@@ -122,14 +165,18 @@ export function CompressorModal({
       setCompressionStatus(true, 100);
       setStats(arrayBuffer.byteLength, compressedBytes.byteLength);
 
-      // 3. Trigger Download
       const blob = new Blob([compressedBytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `compressed_${fileName}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      setLastCompressedBlob(blob);
+
+      // Trigger Download automatically for External/Drive, but for Current we show options
+      if (activeTab !== "current") {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `compressed_${fileName}`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
     } catch (error) {
       console.error("Compression failed:", error);
       alert("Failed to compress PDF. The file might be corrupted.");
@@ -152,12 +199,30 @@ export function CompressorModal({
   };
 
   const handleCompressExternal = async (
-    e: React.ChangeEvent<HTMLInputElement>,
+    e: React.ChangeEvent<HTMLInputElement> | DriveItem,
   ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const arrayBuffer = await file.arrayBuffer();
-    await performCompression(arrayBuffer, file.name);
+    let arrayBuffer: ArrayBuffer;
+    let fileName: string;
+
+    if ("id" in e) {
+      // It's a DriveItem
+      setCompressionStatus(true, 0);
+      const dataUrl = await downloadDrivePdf(e.id);
+      const base64 = dataUrl.split(",")[1];
+      const binary = atob(base64);
+      const uint8Array = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        uint8Array[i] = binary.charCodeAt(i);
+      }
+      arrayBuffer = uint8Array.buffer as ArrayBuffer;
+      fileName = e.name;
+    } else {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      arrayBuffer = await file.arrayBuffer();
+      fileName = file.name;
+    }
+    await performCompression(arrayBuffer, fileName);
   };
 
   return createPortal(
@@ -235,6 +300,16 @@ export function CompressorModal({
             >
               External File
             </button>
+            <button
+              onClick={() => setActiveTab("drive")}
+              className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors ${
+                activeTab === "drive"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Google Drive
+            </button>
           </div>
 
           {/* Tab Content */}
@@ -291,6 +366,62 @@ export function CompressorModal({
                   Compress Editor PDF
                 </button>
               </div>
+            ) : activeTab === "drive" ? (
+              <div className="w-full flex flex-col gap-3">
+                <div className="flex items-center gap-1 text-[10px] text-slate-400 font-bold uppercase overflow-x-auto whitespace-nowrap">
+                  {driveBreadcrumbs.map((crumb, i) => (
+                    <React.Fragment key={crumb.id}>
+                      <button
+                        onClick={() =>
+                          setDriveBreadcrumbs(driveBreadcrumbs.slice(0, i + 1))
+                        }
+                      >
+                        {crumb.name}
+                      </button>
+                      {i < driveBreadcrumbs.length - 1 && <span>/</span>}
+                    </React.Fragment>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto p-1 custom-scrollbar">
+                  {driveLoading ? (
+                    <div className="col-span-2 py-8 flex justify-center">
+                      <Loader2 className="animate-spin text-indigo-500" />
+                    </div>
+                  ) : driveItems.length === 0 ? (
+                    <div className="col-span-2 py-8 text-slate-400 text-xs text-center">
+                      Folder is empty
+                    </div>
+                  ) : (
+                    driveItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          if (item.isFolder) {
+                            setDriveBreadcrumbs([
+                              ...driveBreadcrumbs,
+                              { id: item.id, name: item.name },
+                            ]);
+                          } else {
+                            handleCompressExternal(item);
+                          }
+                        }}
+                        className="flex items-center gap-2 p-2.5 border rounded-xl hover:bg-slate-50 text-left transition-all overflow-hidden"
+                      >
+                        <div className="shrink-0 w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                          {item.isFolder ? (
+                            <HardDrive size={14} className="text-slate-400" />
+                          ) : (
+                            <FileArchive size={14} className="text-red-400" />
+                          )}
+                        </div>
+                        <span className="text-xs font-medium text-slate-700 truncate">
+                          {item.name}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
             ) : (
               <div
                 className="w-full border-2 border-dashed border-slate-200 bg-slate-50/50 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-2xl p-8 cursor-pointer group transition-all"
@@ -323,41 +454,83 @@ export function CompressorModal({
             )}
           </div>
 
-          {/* Stats Bar */}
+          {/* Stats & Actions Bar */}
           {compressedSize > 0 && !isCompressing && (
-            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-5 flex items-center justify-between animate-fade-in-up">
-              <div className="flex flex-col gap-1 items-start">
-                <span className="text-[10px] uppercase font-black text-emerald-600/60 tracking-widest">
-                  Original
-                </span>
-                <span className="text-sm font-mono font-bold text-slate-600">
-                  {formatBytes(originalSize)}
-                </span>
+            <div className="flex flex-col gap-4 animate-fade-in-up">
+              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-5 flex items-center justify-between">
+                <div className="flex flex-col gap-1 items-start">
+                  <span className="text-[10px] uppercase font-black text-emerald-600/60 tracking-widest">
+                    Original
+                  </span>
+                  <span className="text-sm font-mono font-bold text-slate-600">
+                    {formatBytes(originalSize)}
+                  </span>
+                </div>
+                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shrink-0 shadow-sm border border-emerald-100">
+                  <ArrowRight size={16} className="text-emerald-500" />
+                </div>
+                <div className="flex flex-col gap-1 items-end">
+                  <span className="text-[10px] uppercase font-black text-emerald-600/60 tracking-widest text-right">
+                    Compressed
+                  </span>
+                  <span className="text-sm font-mono font-black text-emerald-600">
+                    {formatBytes(compressedSize)}
+                  </span>
+                </div>
+                <div className="h-8 w-px bg-emerald-200/50 mx-2" />
+                <div className="flex flex-col gap-0 items-center bg-white px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm">
+                  <span className="text-[9px] uppercase font-black text-emerald-500">
+                    Saved
+                  </span>
+                  <span className="text-base font-black text-emerald-600">
+                    {Math.round((1 - compressedSize / originalSize) * 100)}%
+                  </span>
+                </div>
               </div>
-              <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shrink-0 shadow-sm border border-emerald-100">
-                <ArrowRight size={16} className="text-emerald-500" />
-              </div>
-              <div className="flex flex-col gap-1 items-end">
-                <span className="text-[10px] uppercase font-black text-emerald-600/60 tracking-widest text-right">
-                  Compressed
-                </span>
-                <span className="text-sm font-mono font-black text-emerald-600">
-                  {formatBytes(compressedSize)}
-                </span>
-              </div>
-              <div className="h-8 w-px bg-emerald-200/50 mx-2" />
-              <div className="flex flex-col gap-0 items-center bg-white px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm">
-                <span className="text-[9px] uppercase font-black text-emerald-500">
-                  Saved
-                </span>
-                <span className="text-base font-black text-emerald-600">
-                  {Math.round((1 - compressedSize / originalSize) * 100)}%
-                </span>
-              </div>
+
+              {/* Actions for Current Document */}
+              {activeTab === "current" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => {
+                      if (!lastCompressedBlob) return;
+                      const url = URL.createObjectURL(lastCompressedBlob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "compressed_document.pdf";
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="flex items-center justify-center gap-2 py-3 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all text-sm"
+                  >
+                    <Download size={18} />
+                    Download
+                  </button>
+                  <button
+                    onClick={() => setIsUploadModalOpen(true)}
+                    className="flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 text-sm"
+                  >
+                    <HardDrive size={18} />
+                    Upload to Drive
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {isUploadModalOpen && lastCompressedBlob && (
+        <UploadToDriveModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          fileToUpload={
+            new File([lastCompressedBlob], "compressed_document.pdf", {
+              type: "application/pdf",
+            })
+          }
+        />
+      )}
     </div>,
     document.body,
   );

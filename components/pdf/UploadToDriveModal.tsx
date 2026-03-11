@@ -33,6 +33,7 @@ import { generateBakedPDF } from "@/hooks/useExportPDF";
 interface UploadToDriveModalProps {
   isOpen: boolean;
   onClose: () => void;
+  fileToUpload?: File;
 }
 
 type ModalStep = "rename" | "create-folder";
@@ -40,6 +41,7 @@ type ModalStep = "rename" | "create-folder";
 export function UploadToDriveModal({
   isOpen,
   onClose,
+  fileToUpload,
 }: UploadToDriveModalProps) {
   const [step, setStep] = useState<ModalStep>("rename");
   const [fileName, setFileName] = useState("document.pdf");
@@ -124,10 +126,8 @@ export function UploadToDriveModal({
     setIsUploading(true);
     setError(null);
     try {
-      if (!worker) throw new Error("Worker not ready");
-
-      // Generate the final PDF including all overlays and highlights
-      const blob = await generateBakedPDF(worker);
+      // Generate the final PDF including all overlays and highlights (if no external file provided)
+      const blob = fileToUpload || (await generateBakedPDF(worker!));
 
       const formData = new FormData();
       formData.append("file", blob, fileName);
@@ -178,7 +178,7 @@ export function UploadToDriveModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[460px]">
+      <DialogContent className="sm:max-w-[460px] z-10001">
         {/* ── Step 1: Rename & Upload ─────────────────────────── */}
         {step === "rename" && (
           <>

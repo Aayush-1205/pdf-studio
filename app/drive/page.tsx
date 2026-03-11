@@ -20,7 +20,8 @@ import {
   Clock,
   Search,
 } from "lucide-react";
-import { usePDFStore } from "@/app/store/usePDFStore";
+import { useCanvasStore } from "@/store/useCanvasStore";
+import { nanoid } from "nanoid";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -40,8 +41,6 @@ export default function DrivePage() {
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([
     { id: "root", name: "My Drive" },
   ]);
-
-  const { saveToStorage, loadFromStorage } = usePDFStore();
 
   const currentFolderId = breadcrumbs[breadcrumbs.length - 1].id;
 
@@ -88,9 +87,36 @@ export default function DrivePage() {
       for (let i = 0; i < binary.length; i++) {
         array[i] = binary.charCodeAt(i);
       }
-      const blob = new Blob([array], { type: "application/pdf" });
 
-      await saveToStorage(blob);
+      const store = useCanvasStore.getState();
+      store.setPdfBytes(array);
+
+      try {
+        const { extractPdfPages } = await import("@/app/lib/pdfRender");
+        const { pages, layers: extractedLayers } = await extractPdfPages(
+          new Uint8Array(array),
+          file.name,
+        );
+
+        store.setPages(pages);
+
+        // Bulk insert extracted text layers
+        const newLayersDict: Record<string, any> = {};
+        const newLayerIds: string[] = [];
+        extractedLayers.forEach((l) => {
+          const lid = nanoid();
+          newLayersDict[lid] = l;
+          newLayerIds.push(lid);
+        });
+
+        useCanvasStore.setState({
+          layers: newLayersDict,
+          layerIds: newLayerIds,
+          selection: [],
+        });
+      } catch (e) {
+        console.error("Failed to extract pages:", e);
+      }
 
       sessionStorage.setItem(
         "drive_origin",
@@ -101,7 +127,6 @@ export default function DrivePage() {
         }),
       );
 
-      await loadFromStorage();
       router.push("/editor?mode=edit");
     } catch (err) {
       console.error("Import error:", err);
