@@ -68,7 +68,7 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
       try {
         const isShared = activeTab === "shared";
         const response = await fetchDriveItems(
-          isShared ? "root" : folderId,
+          folderId,
           token || undefined,
           searchQuery,
           isShared,
@@ -110,7 +110,7 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
 
   useEffect(() => {
     if (isOpen && !searchQuery) {
-      loadItems(activeTab === "shared" ? "root" : currentFolderId, true);
+      loadItems(currentFolderId, true);
     }
   }, [isOpen, activeTab, currentFolderId, loadItems]);
 
@@ -121,7 +121,7 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
       (entries) => {
         if (entries[0].isIntersecting && !isLoading && !isLoadingMore) {
           loadItems(
-            activeTab === "shared" ? "root" : currentFolderId,
+            currentFolderId,
             false,
             nextPageToken,
           );
@@ -145,7 +145,7 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
   ]);
 
   const navigateToFolder = (folder: DriveItem) => {
-    if (activeTab === "shared" || searchQuery) return; // Disable deep nav during search or shared for simplicity
+    if (searchQuery) return; // Disable deep nav during search for simplicity
     setBreadcrumbs((prev) => [...prev, { id: folder.id, name: folder.name }]);
   };
 
@@ -201,6 +201,7 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
           fileId: file.id,
           fileName: file.name,
           parentFolderId: activeTab === "shared" ? "root" : currentFolderId,
+          isShared: activeTab === "shared",
         }),
       );
 
@@ -288,6 +289,7 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
             <button
               onClick={() => {
                 setActiveTab("shared");
+                setBreadcrumbs([{ id: "root", name: "Shared with me" }]);
                 setSearchQuery("");
               }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
@@ -314,8 +316,8 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
           </div>
         </div>
 
-        {/* Breadcrumbs (only for My Drive, hide if searching) */}
-        {!searchQuery && activeTab === "my-drive" && (
+        {/* Breadcrumbs (hide if searching) */}
+        {!searchQuery && (
           <div className="bg-white flex items-center gap-1 text-sm px-6 py-3 border-b border-slate-100 shrink-0 overflow-x-auto">
             {breadcrumbs.map((crumb, i) => (
               <div
@@ -335,7 +337,12 @@ export function DriveModal({ isOpen, onClose }: DriveModalProps) {
                 >
                   {i === 0 ? (
                     <span className="flex items-center gap-1">
-                      <Home className="w-3.5 h-3.5" /> My Drive
+                      {activeTab === "my-drive" ? (
+                        <Home className="w-3.5 h-3.5" />
+                      ) : (
+                        <Users className="w-3.5 h-3.5" />
+                      )}
+                      {crumb.name}
                     </span>
                   ) : (
                     crumb.name

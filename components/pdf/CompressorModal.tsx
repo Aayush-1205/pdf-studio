@@ -9,6 +9,7 @@ import {
   ArrowRight,
   Download,
   HardDrive,
+  Users,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useCompressorStore } from "../../store/useCompressorStore";
@@ -68,6 +69,9 @@ export function CompressorModal({
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [driveItems, setDriveItems] = useState<DriveItem[]>([]);
   const [driveLoading, setDriveLoading] = useState(false);
+  const [driveActiveTab, setDriveActiveTab] = useState<"my-drive" | "shared">(
+    "my-drive",
+  );
   const [driveBreadcrumbs, setDriveBreadcrumbs] = useState([
     { id: "root", name: "My Drive" },
   ]);
@@ -88,7 +92,13 @@ export function CompressorModal({
   const loadDriveItems = async (folderId: string) => {
     setDriveLoading(true);
     try {
-      const resp = await fetchDriveItems(folderId);
+      const isShared = driveActiveTab === "shared";
+      const resp = await fetchDriveItems(
+        folderId,
+        undefined,
+        undefined,
+        isShared,
+      );
       setDriveItems(resp.files);
     } catch (e) {
       console.error(e);
@@ -100,7 +110,7 @@ export function CompressorModal({
     if (activeTab === "drive" && isOpen) {
       loadDriveItems(driveBreadcrumbs[driveBreadcrumbs.length - 1].id);
     }
-  }, [activeTab, isOpen, driveBreadcrumbs]);
+  }, [activeTab, isOpen, driveBreadcrumbs, driveActiveTab]);
 
   if (!isOpen) return null;
   if (typeof document === "undefined") return null;
@@ -168,8 +178,8 @@ export function CompressorModal({
       const blob = new Blob([compressedBytes], { type: "application/pdf" });
       setLastCompressedBlob(blob);
 
-      // Trigger Download automatically for External/Drive, but for Current we show options
-      if (activeTab !== "current") {
+      // Trigger Download automatically for External, but for Current/Drive we show options
+      if (activeTab === "external") {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -207,6 +217,18 @@ export function CompressorModal({
     if ("id" in e) {
       // It's a DriveItem
       setCompressionStatus(true, 0);
+
+      // Set origin info for UploadToDriveModal
+      sessionStorage.setItem(
+        "drive_origin",
+        JSON.stringify({
+          fileId: e.id,
+          fileName: e.name,
+          parentFolderId: e.parents?.[0] || "root",
+          isShared: driveActiveTab === "shared",
+        }),
+      );
+
       const dataUrl = await downloadDrivePdf(e.id);
       const base64 = dataUrl.split(",")[1];
       const binary = atob(base64);
@@ -367,28 +389,74 @@ export function CompressorModal({
                 </button>
               </div>
             ) : activeTab === "drive" ? (
-              <div className="w-full flex flex-col gap-3">
+              <div className="w-full flex flex-col gap-4">
+                {/* Drive Tabs */}
+                <div className="flex bg-slate-100 p-1 rounded-xl self-start">
+                  <button
+                    onClick={() => {
+                      setDriveActiveTab("my-drive");
+                      setDriveBreadcrumbs([{ id: "root", name: "My Drive" }]);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                      driveActiveTab === "my-drive"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <HardDrive className="w-3.5 h-3.5" />
+                    My Drive
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDriveActiveTab("shared");
+                      setDriveBreadcrumbs([
+                        { id: "root", name: "Shared with me" },
+                      ]);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                      driveActiveTab === "shared"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    Shared with me
+                  </button>
+                </div>
+
                 <div className="flex items-center gap-1 text-[10px] text-slate-400 font-bold uppercase overflow-x-auto whitespace-nowrap">
                   {driveBreadcrumbs.map((crumb, i) => (
-                    <React.Fragment key={crumb.id}>
+                    <React.Fragment key={crumb.id + i}>
                       <button
                         onClick={() =>
                           setDriveBreadcrumbs(driveBreadcrumbs.slice(0, i + 1))
                         }
+                        className={`hover:text-indigo-600 transition-colors ${i === driveBreadcrumbs.length - 1 ? "text-indigo-600" : ""}`}
                       >
-                        {crumb.name}
+                        {i === 0 ? (
+                          <span className="flex items-center gap-1">
+                            {driveActiveTab === "my-drive" ? (
+                              <HardDrive className="w-3 h-3" />
+                            ) : (
+                              <Users className="w-3 h-3" />
+                            )}
+                            {crumb.name}
+                          </span>
+                        ) : (
+                          crumb.name
+                        )}
                       </button>
                       {i < driveBreadcrumbs.length - 1 && <span>/</span>}
                     </React.Fragment>
                   ))}
                 </div>
-                <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto p-1 custom-scrollbar">
+                <div className="grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto p-1 custom-scrollbar">
                   {driveLoading ? (
                     <div className="col-span-2 py-8 flex justify-center">
                       <Loader2 className="animate-spin text-indigo-500" />
                     </div>
                   ) : driveItems.length === 0 ? (
-                    <div className="col-span-2 py-8 text-slate-400 text-xs text-center">
+                    <div className="col-span-2 py-8 text-slate-400 text-xs text-center border-2 border-dashed border-slate-100 rounded-xl">
                       Folder is empty
                     </div>
                   ) : (
@@ -405,16 +473,22 @@ export function CompressorModal({
                             handleCompressExternal(item);
                           }
                         }}
-                        className="flex items-center gap-2 p-2.5 border rounded-xl hover:bg-slate-50 text-left transition-all overflow-hidden"
+                        className="flex items-center gap-2 p-2.5 border rounded-xl hover:bg-slate-50 text-left transition-all overflow-hidden group border-slate-200"
                       >
-                        <div className="shrink-0 w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                        <div className="shrink-0 w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-indigo-50 group-hover:border-indigo-100 transition-colors">
                           {item.isFolder ? (
-                            <HardDrive size={14} className="text-slate-400" />
+                            <HardDrive
+                              size={14}
+                              className="text-slate-400 group-hover:text-indigo-500"
+                            />
                           ) : (
-                            <FileArchive size={14} className="text-red-400" />
+                            <FileArchive
+                              size={14}
+                              className="text-red-400 group-hover:text-red-500"
+                            />
                           )}
                         </div>
-                        <span className="text-xs font-medium text-slate-700 truncate">
+                        <span className="text-xs font-medium text-slate-700 truncate group-hover:text-slate-900">
                           {item.name}
                         </span>
                       </button>
@@ -488,8 +562,8 @@ export function CompressorModal({
                 </div>
               </div>
 
-              {/* Actions for Current Document */}
-              {activeTab === "current" && (
+              {/* Actions for Current Document or Drive File */}
+              {(activeTab === "current" || activeTab === "drive") && (
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => {

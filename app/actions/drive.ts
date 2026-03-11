@@ -188,7 +188,7 @@ export async function fetchDriveItems(
 
     let q = `trashed=false and (mimeType='application/vnd.google-apps.folder' or mimeType='application/pdf')`;
 
-    if (sharedWithMe) {
+    if (sharedWithMe && folderId === "root") {
       q += ` and sharedWithMe=true`;
     } else if (searchQuery) {
       q += ` and name contains '${searchQuery}'`;

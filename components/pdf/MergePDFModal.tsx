@@ -1,7 +1,16 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { X, Upload, CheckCircle2, FileUp, Loader2, ZoomIn } from "lucide-react";
+import {
+  X,
+  Upload,
+  CheckCircle2,
+  FileUp,
+  Loader2,
+  ZoomIn,
+  Users,
+  Home,
+} from "lucide-react";
 // NOTE: pdfjs-dist is NOT statically imported here — doing so crashes Next.js SSR
 // because pdfjs-dist's canvas.js calls `new DOMMatrix()` at module evaluation time,
 // which does not exist in Node.js. We use dynamic imports inside async functions instead.
@@ -114,11 +123,13 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const worker = usePDFWorker();
-
   // Drive Picker State
   const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
   const [driveItems, setDriveItems] = useState<DriveItem[]>([]);
   const [driveLoading, setDriveLoading] = useState(false);
+  const [driveActiveTab, setDriveActiveTab] = useState<"my-drive" | "shared">(
+    "my-drive",
+  );
   const [driveBreadcrumbs, setDriveBreadcrumbs] = useState([
     { id: "root", name: "My Drive" },
   ]);
@@ -126,7 +137,13 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
   const loadDriveItems = async (folderId: string) => {
     setDriveLoading(true);
     try {
-      const response = await fetchDriveItems(folderId);
+      const isShared = driveActiveTab === "shared";
+      const response = await fetchDriveItems(
+        folderId,
+        undefined,
+        undefined,
+        isShared,
+      );
       setDriveItems(response.files);
     } catch (e) {
       console.error(e);
@@ -136,9 +153,13 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
 
   useEffect(() => {
     setMounted(true);
-    // Pre-load drive root on mount in background just in case
-    loadDriveItems("root");
   }, []);
+
+  useEffect(() => {
+    if (isDrivePickerOpen) {
+      loadDriveItems(driveBreadcrumbs[driveBreadcrumbs.length - 1].id);
+    }
+  }, [isDrivePickerOpen, driveBreadcrumbs, driveActiveTab]);
 
   if (!isOpen || !mounted) return null;
   if (typeof document === "undefined") return null;
@@ -592,19 +613,62 @@ export function MergePDFModal({ isOpen, onClose }: MergePDFModalProps) {
                 </svg>
                 Select from Google Drive
               </h3>
+              {/* Drive Tabs */}
+              <div className="flex bg-slate-100 p-0.5 rounded-lg self-start mt-2">
+                <button
+                  onClick={() => {
+                    setDriveActiveTab("my-drive");
+                    setDriveBreadcrumbs([{ id: "root", name: "My Drive" }]);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold transition-all ${
+                    driveActiveTab === "my-drive"
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Home size={12} />
+                  My Drive
+                </button>
+                <button
+                  onClick={() => {
+                    setDriveActiveTab("shared");
+                    setDriveBreadcrumbs([
+                      { id: "root", name: "Shared with me" },
+                    ]);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold transition-all ${
+                    driveActiveTab === "shared"
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Users size={12} />
+                  Shared
+                </button>
+              </div>
               {/* Breadcrumbs */}
               <div className="flex items-center gap-1 mt-2 text-xs text-slate-500">
                 {driveBreadcrumbs.map((crumb, i) => (
-                  <div key={crumb.id} className="flex items-center">
+                  <div key={crumb.id + i} className="flex items-center">
                     <button
                       onClick={() => {
                         const newCrumbs = driveBreadcrumbs.slice(0, i + 1);
                         setDriveBreadcrumbs(newCrumbs);
-                        loadDriveItems(crumb.id);
                       }}
-                      className="hover:text-blue-600 font-medium transition-colors"
+                      className={`hover:text-blue-600 font-medium transition-colors ${i === driveBreadcrumbs.length - 1 ? "text-blue-600" : ""}`}
                     >
-                      {crumb.name}
+                      {i === 0 ? (
+                        <div className="flex items-center gap-1">
+                          {driveActiveTab === "my-drive" ? (
+                            <Home size={12} />
+                          ) : (
+                            <Users size={12} />
+                          )}
+                          {crumb.name}
+                        </div>
+                      ) : (
+                        crumb.name
+                      )}
                     </button>
                     {i < driveBreadcrumbs.length - 1 && (
                       <span className="mx-1">/</span>

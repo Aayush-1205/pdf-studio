@@ -25,6 +25,7 @@ import {
   FolderPlus,
   Folder,
   ChevronRight,
+  Users,
 } from "lucide-react";
 import { get } from "idb-keyval";
 import { usePDFWorker } from "@/hooks/usePDFWorker";
@@ -56,6 +57,7 @@ export function UploadToDriveModal({
   // Folder Browsing State
   const [folders, setFolders] = useState<DriveItem[]>([]);
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
+  const [driveTab, setDriveTab] = useState<"my-drive" | "shared">("my-drive");
   const [folderHistory, setFolderHistory] = useState<
     { id: string; name: string }[]
   >([{ id: "root", name: "My Drive" }]);
@@ -69,7 +71,13 @@ export function UploadToDriveModal({
     const fetchFolders = async () => {
       setIsLoadingFolders(true);
       try {
-        const response = await fetchDriveItems(parentFolderId);
+        const isShared = driveTab === "shared";
+        const response = await fetchDriveItems(
+          parentFolderId,
+          undefined,
+          undefined,
+          isShared,
+        );
         if (isMounted) {
           setFolders(response.files.filter((i) => i.isFolder));
         }
@@ -83,7 +91,7 @@ export function UploadToDriveModal({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, parentFolderId, step]);
+  }, [isOpen, parentFolderId, step, driveTab]);
 
   // On open, read origin info from sessionStorage
   useEffect(() => {
@@ -99,24 +107,35 @@ export function UploadToDriveModal({
         try {
           const origin = JSON.parse(originRaw);
           setFileName(origin.fileName || "document.pdf");
+          const isShared = origin.isShared || false; // We should probably store this in origin
+
           if (origin.parentFolderId && origin.parentFolderId !== "root") {
             setParentFolderId(origin.parentFolderId);
+            setDriveTab(isShared ? "shared" : "my-drive");
             setFolderHistory([
-              { id: "root", name: "My Drive" },
+              {
+                id: "root",
+                name: isShared ? "Shared with me" : "My Drive",
+              },
               { id: origin.parentFolderId, name: "Original Folder" },
             ]);
           } else {
             setParentFolderId("root");
-            setFolderHistory([{ id: "root", name: "My Drive" }]);
+            setDriveTab(isShared ? "shared" : "my-drive");
+            setFolderHistory([
+              { id: "root", name: isShared ? "Shared with me" : "My Drive" },
+            ]);
           }
         } catch {
           setFileName("document.pdf");
           setParentFolderId("root");
+          setDriveTab("my-drive");
           setFolderHistory([{ id: "root", name: "My Drive" }]);
         }
       } else {
         setFileName("document.pdf");
         setParentFolderId("root");
+        setDriveTab("my-drive");
         setFolderHistory([{ id: "root", name: "My Drive" }]);
       }
     }
@@ -218,6 +237,42 @@ export function UploadToDriveModal({
                     />
                   </div>
 
+                  {/* Drive Tabs */}
+                  <div className="flex bg-slate-100 p-1 rounded-xl self-start">
+                    <button
+                      onClick={() => {
+                        setDriveTab("my-drive");
+                        setParentFolderId("root");
+                        setFolderHistory([{ id: "root", name: "My Drive" }]);
+                      }}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        driveTab === "my-drive"
+                          ? "bg-white text-indigo-700 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <Folder className="w-3.5 h-3.5" />
+                      My Drive
+                    </button>
+                    <button
+                      onClick={() => {
+                        setDriveTab("shared");
+                        setParentFolderId("root");
+                        setFolderHistory([
+                          { id: "root", name: "Shared with me" },
+                        ]);
+                      }}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        driveTab === "shared"
+                          ? "bg-white text-indigo-700 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      Shared
+                    </button>
+                  </div>
+
                   {/* Folder Browser */}
                   <div className="border border-slate-200 rounded-lg bg-white overflow-hidden flex flex-col h-48">
                     {/* Breadcrumbs */}
@@ -294,6 +349,13 @@ export function UploadToDriveModal({
                     </div>
                   )}
 
+                  {driveTab === "shared" && parentFolderId === "root" && (
+                    <div className="flex items-center gap-2 text-[10px] text-indigo-600 bg-indigo-50 px-3 py-2 rounded-lg">
+                      <AlertCircle className="w-3 h-3" />
+                      Please select a shared folder to upload into.
+                    </div>
+                  )}
+
                   {/* New folder option */}
                   <button
                     type="button"
@@ -317,7 +379,11 @@ export function UploadToDriveModal({
                   </button>
                   <button
                     onClick={() => handleUpload(parentFolderId)}
-                    disabled={isUploading || !fileName.trim()}
+                    disabled={
+                      isUploading ||
+                      !fileName.trim() ||
+                      (driveTab === "shared" && parentFolderId === "root")
+                    }
                     className="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition-colors shadow-sm flex items-center gap-2"
                   >
                     {isUploading ? (

@@ -58,14 +58,6 @@ export default function LeftSidebar() {
   const [insertIndex, setInsertIndex] = useState<number | string>("end");
   const [customInterval, setCustomInterval] = useState<number>(1);
 
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr) return "";
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-    }).format(new Date(dateStr));
-  };
-
   // Dynamically build page presets — prepend "Same as Document" if pages exist
   const firstPage = pagesList[0];
   const dynamicPresets = [
