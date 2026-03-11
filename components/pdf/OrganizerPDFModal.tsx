@@ -31,27 +31,21 @@ import { useCanvasStore, Page } from "../../store/useCanvasStore";
 import { SortablePageThumbnail } from "./SortablePageThumbnail";
 
 // Reuse ZoomPreview from MergePDFModal if possible, or create a similar one.
-// Since MergePDFModal is quite large, I'll define a local one for now 
+// Since MergePDFModal is quite large, I'll define a local one for now
 // but in a real project we should extract this to a shared component.
 
-function ZoomPreview({
-  page,
-  onClose,
-}: {
-  page: Page;
-  onClose: () => void;
-}) {
+function ZoomPreview({ page, onClose }: { page: Page; onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/90 backdrop-blur-md p-8 animate-in fade-in zoom-in-95 duration-200 cursor-zoom-out"
       onClick={onClose}
     >
-      <div className="relative max-w-full max-h-full flex items-center justify-center">
+      <div className="relative w-screen h-screen flex items-center justify-center">
         {page.backgroundUrl ? (
           <img
             src={page.backgroundUrl}
             alt="Page Preview"
-            className="max-w-full max-h-full object-contain shadow-2xl rounded-sm pointer-events-none"
+            className="max-w-full max-h-full object-cover shadow-2xl rounded-sm pointer-events-none"
           />
         ) : (
           <div className="text-white">No preview available</div>
@@ -98,7 +92,7 @@ export function OrganizerPDFModal({ isOpen, onClose }: OrganizerPDFModalProps) {
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -131,7 +125,9 @@ export function OrganizerPDFModal({ isOpen, onClose }: OrganizerPDFModalProps) {
 
   const deleteSelected = () => {
     if (selectedIds.size === 0) return;
-    if (confirm(`Are you sure you want to delete ${selectedIds.size} page(s)?`)) {
+    if (
+      confirm(`Are you sure you want to delete ${selectedIds.size} page(s)?`)
+    ) {
       setLocalPages((prev) => prev.filter((p) => !selectedIds.has(p.id)));
       setSelectedIds(new Set());
     }
@@ -155,7 +151,6 @@ export function OrganizerPDFModal({ isOpen, onClose }: OrganizerPDFModalProps) {
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl border w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-        
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
           <div className="flex items-center gap-3">
@@ -163,7 +158,9 @@ export function OrganizerPDFModal({ isOpen, onClose }: OrganizerPDFModalProps) {
               <LayoutGrid size={24} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-900">Document Organizer</h2>
+              <h2 className="text-xl font-bold text-slate-900">
+                Document Organizer
+              </h2>
               <p className="text-sm text-slate-500">
                 Drag pages to reorder or use multi-select for batch actions.
               </p>
@@ -197,7 +194,7 @@ export function OrganizerPDFModal({ isOpen, onClose }: OrganizerPDFModalProps) {
               Delete Selected ({selectedIds.size})
             </button>
           </div>
-          
+
           <div className="text-xs font-medium text-slate-500">
             {localPages.length} Pages Total
           </div>
@@ -275,6 +272,6 @@ export function OrganizerPDFModal({ isOpen, onClose }: OrganizerPDFModalProps) {
         <ZoomPreview page={zoomPage} onClose={() => setZoomPage(null)} />
       )}
     </div>,
-    document.body
+    document.body,
   );
 }

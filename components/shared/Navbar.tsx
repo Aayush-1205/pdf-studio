@@ -10,7 +10,7 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
+          <div className="w-9 h-9 rounded-xl bg-linear-to-br from-indigo-600 to-violet-600 flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
             <FileText className="w-5 h-5 text-white" />
           </div>
           <span className="text-lg font-bold text-slate-900 tracking-tight">
@@ -18,28 +18,15 @@ export function Navbar() {
           </span>
         </Link>
 
-        {/* Nav Links */}
+        {/* Nav Links - Removed per user request */}
         <div className="hidden md:flex items-center gap-1">
-          {[
-            { label: "Edit", href: "/edit" },
-            { label: "Compress", href: "/compress" },
-            { label: "Rotate", href: "/rotate" },
-          ].map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="px-3.5 py-2 text-sm font-medium text-slate-600 hover:text-indigo-600 rounded-lg hover:bg-indigo-50/60 transition-all"
-            >
-              {item.label}
-            </Link>
-          ))}
         </div>
 
         {/* CTA */}
         <div className="flex items-center gap-4">
           <SignedOut>
             <SignInButton mode="modal">
-              <button className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all active:scale-[0.97]">
+              <button className="bg-linear-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all active:scale-[0.97]">
                 Get Started
               </button>
             </SignInButton>

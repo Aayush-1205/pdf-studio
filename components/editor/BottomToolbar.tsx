@@ -66,15 +66,15 @@ export default function BottomToolbar() {
   };
 
   return (
-    <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center justify-center p-1.5 bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200/50 pointer-events-auto">
-      <div className="flex items-center gap-1 px-2">
+    <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center justify-center p-2.5 bg-white/80 backdrop-blur-2xl rounded-[2rem] shadow-[0_8px_32px_rgba(0,0,0,0.08)] border border-white/60 pointer-events-auto transition-all duration-300 hover:shadow-[0_12px_40px_rgba(0,0,0,0.12)] z-20">
+      <div className="flex items-center gap-1.5 px-2">
         <ToolbarButton
           icon={<MousePointer2 size={18} />}
           isActive={isPointer}
           onClick={() => setMode(CanvasMode.None)}
           tooltip="Select (V)"
         />
-        <div className="w-px h-6 bg-gray-200 mx-1" />
+        <div className="w-px h-6 bg-slate-200/80 mx-1.5 rounded-full" />
 
         {/* Core Shapes */}
         <ToolbarButton
@@ -123,7 +123,7 @@ export default function BottomToolbar() {
           tooltip="Text (T)"
         />
 
-        <div className="w-px h-6 bg-gray-200 mx-1" />
+        <div className="w-px h-6 bg-slate-200/80 mx-1.5 rounded-full" />
 
         <ToolbarButton
           icon={<ImageIcon size={18} />}
@@ -167,28 +167,37 @@ export default function BottomToolbar() {
         />
       </div>
 
-      <div className="flex items-center gap-2 pl-4 pr-2 border-l border-gray-200 ml-2">
+      <div className="flex items-center gap-3 pl-5 pr-2 border-l border-slate-200/80 ml-2">
         <button
           onClick={() => setIsUploadModalOpen(true)}
           disabled={!worker}
-          className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-2 rounded-xl text-sm font-medium transition-colors border border-emerald-200/50 shadow-sm disabled:opacity-50"
+          className="flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 px-5 py-2.5 rounded-full text-sm font-bold transition-all duration-300 border border-slate-200 shadow-sm disabled:opacity-50 hover:shadow-md group text-nowrap"
           title="Upload to Google Drive"
         >
-          <CloudUpload size={16} />
-          <span className="hidden sm:inline">Save to Drive</span>
+          <CloudUpload
+            size={18}
+            className="text-emerald-500 group-hover:scale-110 transition-transform duration-300"
+          />
+          <span className="hidden md:inline">Save to Drive</span>
         </button>
 
         <button
           onClick={handleExport}
           disabled={isExporting || !worker}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+          className="relative overflow-hidden flex items-center gap-2 bg-linear-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white px-6 py-2.5 rounded-full text-sm font-bold transition-all duration-300 shadow-md shadow-indigo-300/50 hover:shadow-lg hover:shadow-indigo-400/60 disabled:opacity-50 hover:-translate-y-0.5 group"
         >
-          {isExporting ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <Download size={16} />
-          )}
-          <span>{isExporting ? "Exporting..." : "Export PDF"}</span>
+          <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out rounded-full" />
+          <div className="relative flex items-center gap-2 text-nowrap">
+            {isExporting ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Download
+                size={18}
+                className="group-hover:-translate-y-0.5 transition-transform duration-300"
+              />
+            )}
+            <span>{isExporting ? "Exporting..." : "Export PDF"}</span>
+          </div>
         </button>
       </div>
 
@@ -223,13 +232,20 @@ function ToolbarButton({
     <button
       onClick={onClick}
       title={tooltip}
-      className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 ${
+      className={`p-3 rounded-full flex items-center justify-center transition-all duration-300 group relative ${
         isActive
-          ? "bg-blue-100 text-blue-600 shadow-inner"
-          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+          ? "bg-indigo-50 text-indigo-600 shadow-sm border border-indigo-100/50"
+          : "text-slate-500 hover:bg-slate-100 hover:text-slate-800 bg-transparent border border-transparent"
       }`}
     >
-      {icon}
+      <div
+        className={`${!isActive && "group-hover:scale-110"} transition-transform duration-300`}
+      >
+        {icon}
+      </div>
+      {isActive && (
+        <span className="absolute -bottom-1 w-1 h-1 bg-indigo-500 rounded-full animate-pulse blur-[0.5px]"></span>
+      )}
     </button>
   );
 }

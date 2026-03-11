@@ -92,17 +92,17 @@ export default function RightPropertyPanel() {
 
   if (selection.length !== 1) {
     return (
-      <div className="absolute top-16 right-4 w-64 bg-white/90 backdrop-blur-sm border border-gray-200/50 shadow-xl rounded-2xl p-4 text-sm text-gray-400 flex flex-col pointer-events-auto transition-all">
-        <h3 className="font-semibold text-gray-800 mb-4 border-b pb-2">
+      <div className="absolute top-24 right-6 w-[280px] bg-white/80 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.06)] rounded-3xl p-5 text-sm text-slate-400 flex flex-col pointer-events-auto transition-all shrink-0 z-10 overflow-hidden">
+        <h3 className="font-bold text-slate-800 mb-4 border-b border-slate-100 pb-3">
           Properties
         </h3>
-        <p className="text-xs text-center mt-8 space-y-2">
-          <span className="block">
+        <p className="text-xs text-center mt-6 space-y-2">
+          <span className="block font-medium">
             {selection.length === 0
               ? "Select a layer to edit properties."
               : "Multiple layers selected."}
           </span>
-          <span className="block text-gray-300">
+          <span className="block text-slate-400/80 leading-relaxed font-medium">
             Click and drag shapes to move them. Use corners to resize. Guides
             will snap them into place.
           </span>
@@ -130,41 +130,41 @@ export default function RightPropertyPanel() {
   };
 
   return (
-    <div className="absolute top-16 right-4 w-[300px] max-h-[calc(100vh-120px)] bg-white/90 backdrop-blur-md border border-gray-200/50 shadow-2xl rounded-2xl p-5 text-sm pointer-events-auto overflow-y-auto transition-all custom-scrollbar flex flex-col">
+    <div className="absolute top-24 right-6 w-[320px] max-h-[calc(100vh-140px)] bg-white/80 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.06)] rounded-3xl p-5 pb-0 text-sm pointer-events-auto overflow-y-auto transition-all custom-scrollbar flex flex-col z-10 scroll-smooth">
       {/* Header Actions */}
-      <div className="flex items-center justify-between mb-4 border-b pb-3 shrink-0">
-        <h3 className="font-semibold text-gray-800 capitalize">
+      <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-4 shrink-0 px-1 pt-1">
+        <h3 className="font-black text-slate-800 capitalize tracking-tight text-lg">
           {activeLayer.type.toLowerCase()}
         </h3>
-        <div className="flex items-center gap-1 text-gray-500">
+        <div className="flex items-center gap-1.5 text-slate-400">
           <button
             onClick={() => reorderLayer(activeId, "up")}
-            className="p-1.5 hover:bg-gray-100 rounded-md transition-colors"
+            className="p-1.5 hover:bg-slate-100 hover:text-indigo-600 rounded-lg transition-all"
             title="Bring Forward"
           >
-            <ArrowUpToLine size={14} />
+            <ArrowUpToLine size={16} />
           </button>
           <button
             onClick={() => reorderLayer(activeId, "down")}
-            className="p-1.5 hover:bg-gray-100 rounded-md transition-colors"
+            className="p-1.5 hover:bg-slate-100 hover:text-indigo-600 rounded-lg transition-all"
             title="Send Backward"
           >
-            <ArrowDownToLine size={14} />
+            <ArrowDownToLine size={16} />
           </button>
-          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <div className="w-px h-5 bg-slate-200 mx-1" />
           <button
             onClick={handleDuplicate}
-            className="p-1.5 hover:bg-gray-100 rounded-md transition-colors"
+            className="p-1.5 hover:bg-slate-100 hover:text-indigo-600 rounded-lg transition-all"
             title="Duplicate"
           >
-            <CopyPlus size={14} />
+            <CopyPlus size={16} />
           </button>
           <button
             onClick={deleteLayers}
-            className="p-1.5 hover:bg-red-50 text-red-500 rounded-md transition-colors"
+            className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg transition-all"
             title="Delete"
           >
-            <Trash2 size={14} />
+            <Trash2 size={16} />
           </button>
         </div>
       </div>

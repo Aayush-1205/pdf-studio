@@ -313,16 +313,23 @@ export default function Canvas() {
   if (windowSize.width === 0) return null; // Wait for client mount
 
   return (
-    <main className="fixed inset-0 w-full h-full bg-[#E5E5E5] overflow-hidden touch-none select-none flex items-center justify-center">
+    <main 
+      className="absolute inset-0 w-full h-full bg-[#FAFAFA] overflow-hidden touch-none select-none flex items-center justify-center -z-10"
+      style={{
+        backgroundImage: 'radial-gradient(#CBD5E1 1px, transparent 1px)',
+        backgroundSize: '24px 24px'
+      }}
+    >
       {pages.length === 0 ? (
-        <div className="flex flex-col items-center justify-center text-gray-400 pointer-events-none z-0">
-          <Layers size={48} className="mb-4 text-gray-300" />
-          <h2 className="text-xl font-semibold text-gray-500 mb-2">
-            No Canvas Open
+        <div className="flex flex-col items-center justify-center text-slate-400 pointer-events-none z-0 transform -translate-y-8">
+          <div className="w-24 h-24 bg-white rounded-3xl shadow-sm border border-slate-200 flex items-center justify-center mb-6 rotate-3 transform transition-transform hover:rotate-6">
+            <Layers size={48} className="text-indigo-400 opacity-80" />
+          </div>
+          <h2 className="text-2xl font-black tracking-tight text-slate-800 mb-2">
+            Workspace is empty
           </h2>
-          <p className="text-sm">
-            Use the Left Sidebar to create a blank frame or import a PDF from
-            Drive.
+          <p className="text-sm text-slate-500 max-w-sm text-center font-medium">
+            Use the Left Sidebar to create a shiny new blank frame or import a PDF from Drive.
           </p>
         </div>
       ) : (
