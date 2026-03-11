@@ -17,12 +17,14 @@ import {
   Layers,
   FileArchive,
   Maximize2,
+  LayoutGrid,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { UploadToDriveModal } from "../pdf/UploadToDriveModal";
 import { MergePDFModal } from "../pdf/MergePDFModal";
 import { CompressorModal } from "../pdf/CompressorModal";
 import { PageResizeModal } from "../pdf/PageResizeModal";
+import { OrganizerPDFModal } from "../pdf/OrganizerPDFModal";
 import { nanoid } from "nanoid";
 
 interface BreadcrumbItem {
@@ -55,6 +57,7 @@ export default function LeftSidebar() {
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [isCompressorModalOpen, setIsCompressorModalOpen] = useState(false);
   const [isResizeModalOpen, setIsResizeModalOpen] = useState(false);
+  const [isOrganizerModalOpen, setIsOrganizerModalOpen] = useState(false);
   const [insertIndex, setInsertIndex] = useState<number | string>("end");
   const [customInterval, setCustomInterval] = useState<number>(1);
 
@@ -121,6 +124,12 @@ export default function LeftSidebar() {
           <PageResizeModal
             isOpen={isResizeModalOpen}
             onClose={() => setIsResizeModalOpen(false)}
+          />
+        )}
+        {isOrganizerModalOpen && (
+          <OrganizerPDFModal
+            isOpen={isOrganizerModalOpen}
+            onClose={() => setIsOrganizerModalOpen(false)}
           />
         )}
 
@@ -302,6 +311,13 @@ export default function LeftSidebar() {
                     >
                       <Layers size={16} />
                       Merge Multiple PDFs
+                    </button>
+                    <button
+                      className="w-full flex items-center justify-center gap-2 bg-sky-50 text-sky-700 border border-sky-200 p-2.5 rounded-lg text-sm font-medium hover:bg-sky-100 transition-colors shadow-sm"
+                      onClick={() => setIsOrganizerModalOpen(true)}
+                    >
+                      <LayoutGrid size={16} />
+                      Organize PDF Pages
                     </button>
                     <button
                       className="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-200 p-2.5 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors shadow-sm"
