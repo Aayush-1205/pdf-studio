@@ -90,8 +90,8 @@ export default function DrivePage() {
     // We only want this to run when searchQuery or activeTab changes significantly to warrant a new search.
     // If not searching, the other useEffect handles standard folder loading.
     if (!searchQuery && activeTab === "my-drive" && breadcrumbs.length === 1) {
-       // Just on the root, no need to trigger a new search if it's already empty
-       return;
+      // Just on the root, no need to trigger a new search if it's already empty
+      return;
     }
 
     const timeout = setTimeout(() => {
@@ -106,7 +106,7 @@ export default function DrivePage() {
         // Actually, if they clear a search, we probably DO want them back at the root of My Drive or where they were?
         // Let's just reset to root for simplicity when search is cleared to match DriveModal logic.
       ) {
-         setBreadcrumbs([{ id: "root", name: "My Drive" }]);
+        setBreadcrumbs([{ id: "root", name: "My Drive" }]);
       }
     }, 500);
     return () => clearTimeout(timeout);
@@ -208,7 +208,7 @@ export default function DrivePage() {
       );
 
       // Crucial: Use next/navigation to safely push. Wait for transition.
-      router.push("/editor?mode=edit");
+      router.push("/editor");
     } catch (err) {
       console.error("Import error:", err);
       setError(`Failed to import "${file.name}". Please try again.`);
@@ -368,7 +368,9 @@ export default function DrivePage() {
               {isLoading && items.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-32 text-slate-500 flex-1">
                   <Loader2 className="w-10 h-10 animate-spin mb-5 text-indigo-500" />
-                  <p className="font-bold text-slate-600">Loading your Drive...</p>
+                  <p className="font-bold text-slate-600">
+                    Loading your Drive...
+                  </p>
                 </div>
               ) : error ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center px-6 flex-1">
@@ -387,9 +389,7 @@ export default function DrivePage() {
                 <div className="flex flex-col items-center justify-center py-32 text-slate-500 flex-1">
                   <Folder className="w-16 h-16 text-slate-200 mb-4" />
                   <p className="font-bold text-lg text-slate-700">
-                    {searchQuery
-                      ? "No matching files"
-                      : "This folder is empty"}
+                    {searchQuery ? "No matching files" : "This folder is empty"}
                   </p>
                   <p className="text-slate-400 mt-2 font-medium">
                     {searchQuery
@@ -418,7 +418,9 @@ export default function DrivePage() {
                         <Clock className="w-3.5 h-3.5" />
                         {formatDate(folder.modifiedTime || folder.createdTime)}
                       </div>
-                      <div className="hidden sm:block col-span-2 text-xs text-slate-300 font-medium">—</div>
+                      <div className="hidden sm:block col-span-2 text-xs text-slate-300 font-medium">
+                        —
+                      </div>
                       <div className="hidden sm:flex col-span-1 justify-end">
                         <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-amber-500 group-hover:translate-x-1 transition-all" />
                       </div>
@@ -465,7 +467,9 @@ export default function DrivePage() {
                           ) : (
                             <>
                               <Download className="w-4 h-4" />
-                              <span className="hidden sm:inline text-nowrap">Open in Editor</span>
+                              <span className="hidden sm:inline text-nowrap">
+                                Open in Editor
+                              </span>
                             </>
                           )}
                         </button>
@@ -475,11 +479,14 @@ export default function DrivePage() {
 
                   {/* Infinite Scroll Loader */}
                   {nextPageToken && (
-                    <div ref={loadMoreRef} className="p-6 flex justify-center border-t border-slate-50">
+                    <div
+                      ref={loadMoreRef}
+                      className="p-6 flex justify-center border-t border-slate-50"
+                    >
                       {isLoadingMore ? (
                         <div className="flex items-center gap-2 text-indigo-500 font-bold text-sm">
-                           <Loader2 className="w-5 h-5 animate-spin" />
-                           Loading more...
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Loading more...
                         </div>
                       ) : (
                         <div className="h-6" /> // spacer to observe
@@ -500,7 +507,9 @@ export default function DrivePage() {
                 <span>
                   {breadcrumbs.length > 1 && !searchQuery
                     ? `LOCATION: ${breadcrumbs[breadcrumbs.length - 1].name.toUpperCase()}`
-                    : activeTab === "shared" ? "SHARED FILES" : "ROOT DIRECTORY"}
+                    : activeTab === "shared"
+                      ? "SHARED FILES"
+                      : "ROOT DIRECTORY"}
                 </span>
               </div>
             )}
