@@ -51,7 +51,7 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
 
   // Map local canvas layers to worker expectations
   const overlays: any[] = layerIds
-    .map((id) => {
+    .map((id: string) => {
       const layer = layers[id];
 
       if (layer.type === "RECTANGLE") {
@@ -248,7 +248,7 @@ export const generateBakedPDF = async (worker: Worker): Promise<Blob> => {
       args: [
         new Uint8Array(basePdfBytes),
         overlays,
-        pages.map((p) => ({ pdfPageIndex: p.pdfPageIndex })),
+        pages.map((p: any) => ({ pdfPageIndex: p.pdfPageIndex })),
       ],
     });
   });

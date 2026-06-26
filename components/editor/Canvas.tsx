@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, react-hooks/refs */
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasStore, CanvasMode } from "../../store/useCanvasStore";
@@ -20,6 +21,9 @@ import LeftSidebar from "./LeftSidebar";
 import { Layers } from "lucide-react";
 import { getStroke } from "perfect-freehand";
 import { getSvgPathFromStroke } from "../../app/lib/pdfUtils";
+
+import { getPageTopOffset, PAGE_GAP } from "../../lib/editor/pageLayout";
+import { useCanvasPointerController } from "./controllers/useCanvasPointerController";
 
 // Helper component for PDF Background Page
 function PdfPageImage({
@@ -54,8 +58,6 @@ function PdfPageImage({
     />
   );
 }
-
-const PAGE_GAP = 40;
 
 export default function Canvas() {
   const {
@@ -184,26 +186,8 @@ export default function Canvas() {
   }, [setMode, setAltPressed]);
 
   const pageOffsets = useMemo(() => {
-    let currentY = 0;
-    return pages.map((page) => {
-      const offset = currentY;
-      currentY += page.height + PAGE_GAP;
-      return offset;
-    });
+    return pages.map((_: any, idx: number) => getPageTopOffset(idx, pages));
   }, [pages]);
-
-  const getPageTarget = useCallback(
-    (globalY: number) => {
-      for (let i = 0; i < pages.length; i++) {
-        const pageTop = pageOffsets[i];
-        const pageBottom = pageTop + pages[i].height + PAGE_GAP;
-        if (globalY >= pageTop && globalY < pageBottom)
-          return { pageIndex: i, relativeY: globalY - pageTop };
-      }
-      return { pageIndex: 0, relativeY: globalY };
-    },
-    [pages, pageOffsets],
-  );
 
   const onWheel = useCallback(
     (e: any) => {
@@ -238,76 +222,15 @@ export default function Canvas() {
     [camera, setCamera],
   );
 
-  const onPointerDown = useCallback(
-    (e: any) => {
-      const stage = e.target.getStage();
-      const isStageOrPage =
-        e.target === stage || e.target.hasName("page-background");
-
-      if (isStageOrPage && mode === CanvasMode.None) {
-        setSelection([]);
-        setEditingTextId(null); // Clicking blank canvas exits text edit
-      }
-
-      if (pages.length === 0) return;
-      const pointer = stage.getRelativePointerPosition();
-
-      const target = getPageTarget(pointer.y);
-      const relativePoint = { x: pointer.x, y: target.relativeY };
-
-      if (mode === CanvasMode.Inserting && layerType) {
-        const initialValues =
-          layerType === "LINE" || layerType === "ARROW" ? { height: 2 } : {};
-        insertLayer(layerType, target.pageIndex, relativePoint, initialValues);
-      } else if (mode === CanvasMode.Pencil) {
-        startDrawing(relativePoint, target.pageIndex);
-      }
-    },
-    [
-      mode,
-      layerType,
-      pages,
-      getPageTarget,
-      insertLayer,
-      startDrawing,
-      setSelection,
-    ],
-  );
-
-  const onPointerMove = useCallback(
-    (e: any) => {
-      // Only process if drag is active manually, OR pencil
-      if (e.evt.buttons !== 1 || pages.length === 0) return;
-      const stage = e.target.getStage();
-      const pointer = stage.getRelativePointerPosition();
-
-      if (mode === CanvasMode.Pencil) {
-        let targetPageIndex = getPageTarget(pointer.y).pageIndex;
-        const pgOffset = pageOffsets[targetPageIndex] || 0;
-        continueDrawing({ x: pointer.x, y: pointer.y - pgOffset });
-      }
-      // We removed manual translating here because Konva's `draggable={isSelected}` + `onDragEnd` handles it efficiently!
-    },
-    [mode, pages, pageOffsets, getPageTarget, continueDrawing],
-  );
-
-  const onPointerUp = useCallback(
-    (e: any) => {
-      if (pages.length === 0) return;
-      if (mode === CanvasMode.Pencil) {
-        const stage = e.target.getStage();
-        const pointer = stage.getRelativePointerPosition();
-        const target = getPageTarget(pointer.y);
-        endDrawing(target.pageIndex);
-      }
-    },
-    [mode, pages, getPageTarget, endDrawing],
+  const { onPointerDown, onPointerMove, onPointerUp } = useCanvasPointerController(
+    stageRef,
+    setEditingTextId
   );
 
   // Keep track of layer refs to pass to SelectionBox (Transformer)
   const layerRefs = useRef<Record<string, any>>({});
   const selectedRefs = selection
-    .map((id) => layerRefs.current[id])
+    .map((id: string) => layerRefs.current[id])
     .filter(Boolean);
 
   if (windowSize.width === 0) return null; // Wait for client mount
@@ -349,7 +272,7 @@ export default function Canvas() {
         >
           <Layer>
             {/* Draw PDF Backgrounds */}
-            {pages.map((page, idx) => {
+            {pages.map((page: any, idx: number) => {
               const offsetY = pageOffsets[idx];
               return (
                 <Group key={page.id} y={offsetY} name="page-background">
@@ -375,7 +298,7 @@ export default function Canvas() {
             })}
 
             {/* Draw Layers */}
-            {layerIds.map((id) => {
+            {layerIds.map((id: string) => {
               const layer = layers[id];
               if (!layer) return null;
               const offsetY = pageOffsets[layer.pageIndex] || 0;
@@ -520,9 +443,6 @@ function TextEditingOverlay({
   const absX = layer.x * camera.zoom + camera.x;
   const absY = (layer.y + pageOffset) * camera.zoom + camera.y;
 
-  let fontStyle = "";
-  if (layer.isBold) fontStyle += "bold ";
-  if (layer.isItalic) fontStyle += "italic ";
   let textDecoration = "";
   if (layer.isUnderline) textDecoration += "underline ";
   if (layer.isStrikethrough) textDecoration += "line-through ";
@@ -579,12 +499,7 @@ function MeasurementsOverlay() {
   if (!activeLayer) return null;
 
   // Pre-calculate page offsets
-  let currentY = 0;
-  const pageOffsets = pages.map((page) => {
-    const offset = currentY;
-    currentY += page.height + PAGE_GAP;
-    return offset;
-  });
+  const pageOffsets = pages.map((_: any, idx: number) => getPageTopOffset(idx, pages));
 
   // Calculate absolute active layer bounding box
   const act = {

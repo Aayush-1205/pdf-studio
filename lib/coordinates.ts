@@ -7,14 +7,16 @@ import { Camera, Point } from "../store/useCanvasStore";
  */
 export function pointerEventToCanvasPoint(
   e: React.PointerEvent,
+  container: HTMLElement,
   camera: Camera,
 ): Point {
-  // If the user scrolls down the page or uses a complex layout,
-  // you often need to subtract the bounding client rect of the SVG wrapper.
-  // For a full-screen app, e.clientX / e.clientY is usually close enough.
+  const rect = container.getBoundingClientRect();
+  const localX = e.clientX - rect.left;
+  const localY = e.clientY - rect.top;
+
   return {
-    x: Math.round(e.clientX / camera.zoom - camera.x),
-    y: Math.round(e.clientY / camera.zoom - camera.y),
+    x: Math.round(localX / camera.zoom - camera.x),
+    y: Math.round(localY / camera.zoom - camera.y),
   };
 }
 
